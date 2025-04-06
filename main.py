@@ -1,62 +1,43 @@
-from matplotlib import pyplot as plt, animation
-import Global_spatiotemporal_joint_optimization
-import Update
-import Dynamic_label_movement_planning
+from Global_spatiotemporal_joint_optimization import LabelOptimizer, params
+from initialize import initialize_features_from_gif
+from label import Label
 
-if __name__ == "__main__":
-    # 通过track_points获取运动点数据
-    trajectories = update.track_points('input.gif')  # Replace 'input.gif' with your actual input GIF path
+if __name__ == '__main__':
 
-    # Initialize features from the trajectories
-    features = []
-    for idx, traj in enumerate(trajectories):
-        path = traj
-        features.append(Dynamic_label_movement_planning.Feature(idx, path))
-    print(features)
-    labels_list = []
-    previous_labels_list = [None]
 
-    # Global detection of joint sets
-    joint_sets = Dynamic_label_movement_planning.detect_joint_sets(features)
-    joint_labels = {}
-    prev_labels = None
-    for jset, t in joint_sets:
-        joint_features = [features[i] for i in jset]
-        for feat in joint_features:
-            feat.current_pos = feat.path[t]
-        optimized_labels = Dynamic_label_movement_planning.simulated_annealing(joint_features, previous_labels=prev_labels)
-        for label in optimized_labels:
-            joint_labels[(label.feature.id, t)] = label
-        prev_labels = optimized_labels
+    # 读取图片
+    gif_path = 'input.gif'  # 替换为你的GIF文件路径
+    features = initialize_features_from_gif(gif_path)
 
-    # Initial frame global optimization
-    for feat in features:
-        feat.current_pos = feat.path[0]
-    initial_labels = Dynamic_label_movement_planning.simulated_annealing(features)
-    labels_list.append(initial_labels)
+    # 创建标签对象（假设每个特征对应一个标签）
+    labels = []
+    for feature in features:
+        # 初始化标签位置为特征初始位置的右侧
+        initial_x = feature.position[0] + feature.radius + 20  # 初始位置在特征右侧
+        initial_y = feature.position[1]
+        label = Label(
+            id=feature.id,
+            feature=feature,
+            position=(initial_x, initial_y),
+        )
+        labels.append(label)
 
-    # Processing subsequent frames
-    for frame in range(len(features[0].path)):
-        for feat in features:
-            feat.current_pos = feat.path[frame]
-        current_labels = [label.copy() for label in labels_list[-1]]
+    # 设置可视区域边界（假设为800x600）
+    max_x = 1000
+    max_y = 1000
 
-        # Apply joint set constraints
-        for i, label in enumerate(current_labels):
-            key = (label.feature.id, frame)
-            if key in joint_labels:
-                current_labels[i] = joint_labels[key].copy()
+    # print(labels)
+    # 执行全局静态优化
+    optimizer = LabelOptimizer(labels, features, params, max_x, max_y)
+    optimized_labels = optimizer.optimize()
 
-        # Force-directed optimization
-        for _ in range(10):
-            forces = Dynamic_label_movement_planning.calculate_forces(current_labels, features, joint_sets, frame)
-            Dynamic_label_movement_planning.update_positions(current_labels, forces)
+    # print(optimized_labels)
 
-        labels_list.append(current_labels)
-        previous_labels_list.append(labels_list[-2])
 
-    fig = plt.figure(figsize=(10, 10))
-    anim = animation.FuncAnimation(fig, update, frames=len(features[0].path),
-                                   fargs=(features, labels_list, previous_labels_list),
-                                   interval=200)
-    anim.save("dynamic_labels_optimized.gif", writer='pillow', fps=2, dpi=100)
+    # 输出每个要素的信息（ID、初始位置、速度、轨迹）
+    for label in optimized_labels:
+        print(f"label ID: {label.id}")
+        print(f"  Initial Position: {label.position}")
+        print(f"  Velocity: {label.velocity}")
+        print(f"  Feature: {label.feature}")
+

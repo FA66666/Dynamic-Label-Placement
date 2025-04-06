@@ -1,189 +1,284 @@
-# 参数（来自 Appendix A1 和 A2）
+import math
 import random
 
-import numpy as np
-
-W_LABEL_LABEL = 80
-W_LABEL_FEATURE = 50
-W_ORIENTATION = [1, 2, 3, 4]  # 四个象限的优先级
-W_DISTANCE = 20
-W_OUT_OF_AXES = 320
-W_INTERSECT = 1
-W_RADIUS = 10  # 约束传递中的半径权重
-W_ANGLE = 5  # 约束传递中的角度权重
-MAX_RADIUS = 300
-
-class Label:
-    def __init__(self, feature, angle, radius):
-        self.feature = feature
-        self.angle = angle
-        self.radius = radius
-        self.position = self.polar_to_cartesian(angle, radius)
-        self.velocity = np.array([0.0, 0.0])
-
-    def polar_to_cartesian(self, angle, radius):
-        return np.array([radius * np.cos(np.deg2rad(angle)), radius * np.sin(np.deg2rad(angle))])
-
-    def cartesian_to_polar(self):
-        x, y = self.position
-        r = np.hypot(x, y)
-        theta = np.rad2deg(np.arctan2(y, x)) % 360
-        return theta, r
-
-    def copy(self):
-        new_label = Label(self.feature, self.angle, self.radius)
-        new_label.position = self.position.copy()
-        new_label.velocity = self.velocity.copy()
-        return new_label
+# 参数设置（参考论文附录A1）
+params = {
+    'Wlabel-label': 80,
+    'Wlabel-feature': 50,
+    'Worient': [1, 2, 3, 4],  # 四个象限的权重
+    'Wdistance': 20,
+    'Wout-of-axes': 320,
+    'Wintersect': 1,  # leader线交叉惩罚权重
+    'Wradius': 20,
+    'Wangle': 10
+}
 
 
-class Feature:
-    def __init__(self, id, path):
-        self.id = id
-        self.path = np.array(path)
-        self.current_pos = None
-        self.velocity = np.array([0.0, 0.0])
-        self.path_history = []
+class LabelOptimizer:
+    def __init__(self, labels, features, params, max_x=1000, max_y=1000):
+        self.labels = labels
+        self.features = features
+        self.params = params
+        self.constraints = {}
+        self.joint_sets = []
+        self.max_x = max_x  # 可视区域最大X坐标
+        self.max_y = max_y  # 可视区域最大Y坐标
 
-    def update_velocity(self, previous_position, current_position, delta_time):
-        self.velocity = (current_position - previous_position) / delta_time
+    def detect_joint_sets(self):
+        """检测空间-时间交集区域并排序（修改后）"""
+        joint_sets = []
+        max_frames = len(self.features[0].trajectory) if self.features else 0
 
+        for t in range(max_frames):
+            current_positions = [f.trajectory[t] for f in self.features]
+            current_set = set()
+            for i in range(len(self.features)):
+                for j in range(i + 1, len(self.features)):
+                    dx = current_positions[i][0] - current_positions[j][0]
+                    dy = current_positions[i][1] - current_positions[j][1]
+                    distance = math.hypot(dx, dy)
+                    if distance < 1.0:
+                        current_set.update({i, j})
+            if current_set:
+                joint_sets.append({'set': current_set, 'frame': t})
 
+        # 按集合大小降序排序
+        self.joint_sets = sorted(joint_sets, key=lambda x: -len(x['set']))
 
-def detect_joint_sets(features):
-    joint_sets = []
-    for i in range(len(features)):
-        for j in range(len(features)):
-            if i == j:
-                continue
-            # 使用两个特征轨迹的最小长度进行遍历
-            min_length = min(len(features[i].path), len(features[j].path))
-            for t in range(min_length):
-                pos_i = features[i].path[t]
-                pos_j = features[j].path[t]
-                if np.linalg.norm(pos_i - pos_j) < 50:  # 距离阈值
-                    joint_sets.append((set([i, j]), t))
-                    break
-    # 合并相同时间的联合集
-    merged_sets = {}
-    for s, t in joint_sets:
-        if t in merged_sets:
-            merged_sets[t].update(s)
-        else:
-            merged_sets[t] = s
-    return sorted([(s, t) for t, s in merged_sets.items()], key=lambda x: len(x[0]), reverse=True)
+    def calculate_static_energy(self, label_positions, joint_set):
+        """静态能量计算（包含约束项，修改后）"""
+        E_overlap = 0
+        E_position = 0
+        E_aesthetics = 0
+        E_constraint = 0
 
-def get_rect(entity):
-    pos = entity.position
-    return {'x': pos[0] - 20, 'y': pos[1] - 10, 'width': 40, 'height': 20}
+        # 计算标签间重叠
+        for i in range(len(self.labels)):
+            for j in range(len(self.labels)):
+                if i == j:
+                    continue
+                E_overlap += self.calculate_rectangle_overlap(i, j, label_positions)
 
+        # 计算标签与特征的重叠
+        for i in range(len(self.labels)):
+            E_overlap += self.calculate_rectangle_circle_overlap(i, label_positions)
 
-def calculate_rect_overlap(rect1, rect2):
-    left = max(rect1['x'], rect2['x'])
-    right = min(rect1['x'] + rect1['width'], rect2['x'] + rect2['width'])
-    bottom = max(rect1['y'], rect2['y'])
-    top = min(rect1['y'] + rect1['height'], rect2['y'] + rect2['height'])
-    if left >= right or bottom >= top:
-        return 0
-    return (right - left) * (top - bottom)
+        # 计算位置能量
+        for i, pos in enumerate(label_positions):
+            dx = pos[0] - self.features[i].position[0]
+            dy = pos[1] - self.features[i].position[1]
+            r, theta = self.cartesian_to_polar((dx, dy))
+            quadrant = int(theta // 90) % 4
+            E_position += self.params['Worient'][quadrant] * r
+            E_position += self.params['Wdistance'] * r
 
+        # 计算美学能量
+        leader_intersections = self.calculate_leader_intersections(label_positions)
+        out_of_axes_area = self.check_out_of_axes(label_positions)
+        E_aesthetics = self.params['Wout-of-axes'] * out_of_axes_area
+        E_aesthetics += self.params['Wintersect'] * leader_intersections
 
-def calculate_overlap(labels, features):
-    E_overlap = 0
-    for i in range(len(labels)):
-        for j in range(i + 1, len(labels)):
-            rect1 = get_rect(labels[i])
-            rect2 = get_rect(labels[j])
-            overlap_area = calculate_rect_overlap(rect1, rect2)
-            E_overlap += W_LABEL_LABEL * overlap_area
-        for feat in features:
-            label_rect = get_rect(labels[i])
-            feat_rect = {'x': feat.current_pos[0] - 8, 'y': feat.current_pos[1] - 8, 'width': 16, 'height': 16}
-            overlap_area = calculate_rect_overlap(label_rect, feat_rect)
-            E_overlap += W_LABEL_FEATURE * overlap_area
-    return E_overlap
+        # 计算约束能量
+        common_features = set(joint_set['set']).intersection(self.constraints.keys())  # 使用 joint_set['set']
+        for idx in common_features:
+            prev_r, prev_theta = self.constraints[idx]
+            dx = label_positions[idx][0] - self.features[idx].position[0]
+            dy = label_positions[idx][1] - self.features[idx].position[1]
+            current_r = math.hypot(dx, dy)
+            current_theta = math.atan2(dy, dx)
+            E_constraint += self.params['Wradius'] * abs(current_r - prev_r)
+            E_constraint += self.params['Wangle'] * abs(current_theta - prev_theta)
 
+        return E_overlap + E_position + E_aesthetics + E_constraint
 
-def calculate_intersections(labels):
-    intersections = 0
-    for i, label1 in enumerate(labels[:-1]):
-        p1, q1 = label1.position, label1.feature.current_pos
-        for label2 in labels[i + 1:]:
-            p2, q2 = label2.position, label2.feature.current_pos
-            if line_intersects(p1, q1, p2, q2):
-                intersections += 1
-    return intersections
+    def calculate_rectangle_overlap(self, i, j, label_positions):
+        """计算两个标签（矩形与矩形）的重叠面积"""
+        x1, y1 = label_positions[i]
+        x2, y2 = label_positions[j]
+        l1, w1 = self.labels[i].length, self.labels[i].width
+        l2, w2 = self.labels[j].length, self.labels[j].width
 
+        # 计算矩形边界
+        rect1 = {
+            'x_min': x1,
+            'x_max': x1 + w1,
+            'y_min': y1,
+            'y_max': y1 + l1
+        }
+        rect2 = {
+            'x_min': x2,
+            'x_max': x2 + w2,
+            'y_min': y2,
+            'y_max': y2 + l2
+        }
 
-def line_intersects(p1, q1, p2, q2):
-    def ccw(a, b, c):
-        return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
+        # 计算重叠区域
+        overlap_x = max(0, min(rect1['x_max'], rect2['x_max']) - max(rect1['x_min'], rect2['x_min']))
+        overlap_y = max(0, min(rect1['y_max'], rect2['y_max']) - max(rect1['y_min'], rect2['y_min']))
+        return self.params['Wlabel-label'] * overlap_x * overlap_y
 
-    return ccw(p1, q1, p2) != ccw(p1, q1, q2) and ccw(p2, q2, p1) != ccw(p2, q2, q1)
+    def calculate_rectangle_circle_overlap(self, i, label_positions):
+        """计算矩形与圆的重叠面积（精确计算）"""
+        x, y = label_positions[i]
+        l, w = self.labels[i].length, self.labels[i].width
+        feature_center = self.features[i].position
+        feature_radius = self.features[i].radius
 
-def energy_function(labels, features, previous_labels=None):
-    E_overlap = 0
-    E_position = 0
-    E_aesthetics = 0
-    E_constraint = 0
+        # 矩形的四个角坐标
+        corners = [
+            (x, y),
+            (x + w, y),
+            (x, y + l),
+            (x + w, y + l)
+        ]
 
-    # 计算重叠能量（E_overlap）
-    for i in range(len(labels)):
-        rect_i = get_rect(labels[i])
-        for j in range(i + 1, len(labels)):
-            rect_j = get_rect(labels[j])
-            overlap_area = calculate_rect_overlap(rect_i, rect_j)
-            E_overlap += W_LABEL_LABEL * overlap_area
-        for feat in features:
-            feat_rect = {'x': feat.current_pos[0] - 8, 'y': feat.current_pos[1] - 8, 'width': 16, 'height': 16}
-            E_overlap += W_LABEL_FEATURE * calculate_rect_overlap(rect_i, feat_rect)
+        # 计算圆心到矩形的距离
+        dx = feature_center[0] - x
+        dy = feature_center[1] - y
+        distance = math.hypot(dx, dy)
 
-    # 计算位置能量（E_position）
-    for label in labels:
-        angle, radius = label.cartesian_to_polar()
-        quadrant = (int(angle // 90) % 4)  # 0-3对应四个象限
-        E_position += W_ORIENTATION[quadrant] * W_DISTANCE * radius
+        # 分离轴定理判断是否相交
+        if distance > feature_radius + max(w, l) / 2:
+            return 0
 
-    # 计算美学能量（E_aesthetics）
-    intersections = calculate_intersections(labels)
-    E_aesthetics += intersections * W_INTERSECT
-    for label in labels:
-        rect = get_rect(label)
-        if np.hypot(rect['x'], rect['y']) > MAX_RADIUS:
-            E_aesthetics += W_OUT_OF_AXES
+        # 精确计算重叠面积（使用积分或几何分解）
+        # 这里简化为返回圆形与矩形的最小包围圆重叠面积
+        return self.params['Wlabel-feature'] * min(math.pi * feature_radius ** 2, l * w)
 
-    # 计算约束能量（E_constraint）
-    if previous_labels:
-        for label, prev_label in zip(labels, previous_labels):
-            theta_curr, r_curr = label.cartesian_to_polar()
-            theta_prev, r_prev = prev_label.cartesian_to_polar()
-            E_constraint += W_RADIUS * abs(r_curr - r_prev) + W_ANGLE * abs(theta_curr - theta_prev)
+    def cartesian_to_polar(self, cartesian):
+        """笛卡尔坐标转极坐标"""
+        x, y = cartesian
+        r = math.hypot(x, y)
+        theta = math.atan2(y, x)
+        return r, theta
 
-    return E_overlap + E_position + E_aesthetics + E_constraint
+    def calculate_leader_intersections(self, label_positions):
+        """计算leader线交叉次数"""
+        intersections = 0
+        for i in range(len(self.labels)):
+            for j in range(i + 1, len(self.labels)):
+                # 计算leader线是否交叉
+                # 假设leader线是直线连接标签中心到特征中心
+                line1 = (
+                    label_positions[i],
+                    self.features[i].position
+                )
+                line2 = (
+                    label_positions[j],
+                    self.features[j].position
+                )
+                if self.lines_intersect(line1, line2):
+                    intersections += 1
+        return intersections
 
+    def lines_intersect(self, line1, line2):
+        """判断两条线段是否相交"""
+        # 使用分离轴定理实现线段相交检测
+        # 这里简化为返回True/False
+        # 实际应用中需实现精确计算
+        return True
 
-def simulated_annealing(features, T_initial=1000, max_iterations=1000, previous_labels=None):
-    labels = [Label(feat, random.uniform(0, 360), random.uniform(100, 200)) for feat in features]
-    current_energy = energy_function(labels, features, previous_labels)
-    best_labels = [label.copy() for label in labels]
-    best_energy = current_energy
-    T = T_initial
-    for _ in range(max_iterations):
-        new_labels = [label.copy() for label in labels]
-        idx = random.randint(0, len(new_labels) - 1)
-        new_labels[idx].angle += np.random.normal(0, 5)
-        new_labels[idx].radius += np.random.normal(0, 10)
-        new_labels[idx].position = new_labels[idx].polar_to_cartesian(new_labels[idx].angle, new_labels[idx].radius)
-        new_energy = energy_function(new_labels, features, previous_labels)
-        delta_energy = new_energy - current_energy
-        if delta_energy < 0 or random.random() < np.exp(-delta_energy / T):
-            labels = [label.copy() for label in new_labels]
-            current_energy = new_energy
-            if new_energy < best_energy:
-                best_labels = [label.copy() for label in new_labels]
-                best_energy = new_energy
-        T *= 0.99
-        if T < 1e-3:
-            break
-    return best_labels
+    def check_out_of_axes(self, label_positions):
+        """计算标签超出可视区域的面积"""
+        total_area = 0
+        for i, pos in enumerate(label_positions):
+            x, y = pos
+            label = self.labels[i]
+            label_width = label.width
+            label_height = label.length
 
+            # 计算各边超出量
+            clipped_left = max(0, -x)  # 左侧超出
+            clipped_right = max(0, (x + label_width) - self.max_x)  # 右侧超出
+            clipped_top = max(0, -y)  # 上侧超出
+            clipped_bottom = max(0, (y + label_height) - self.max_y)  # 下侧超出
+
+            # 计算超出区域面积
+            total_area += (
+                clipped_left * label_height +  # 左侧超出面积
+                clipped_right * label_height +  # 右侧超出面积
+                clipped_top * label_width +  # 上侧超出面积
+                clipped_bottom * label_width  # 下侧超出面积
+            )
+
+        return total_area
+
+    def simulated_annealing(self, initial_positions, joint_set, max_iter=1000):
+        """模拟退火优化（修改后，使用约束项）"""
+        current_pos = initial_positions.copy()
+        best_pos = current_pos.copy()
+        current_energy = self.calculate_static_energy(current_pos, joint_set)
+        best_energy = current_energy
+        temp = 1000.0  # 初始温度
+
+        for _ in range(max_iter):
+            # 生成新解（扰动幅度与温度相关）
+            new_pos = [
+                (x + random.uniform(-temp / 100, temp / 100),
+                 y + random.uniform(-temp / 100, temp / 100))
+                for x, y in current_pos
+            ]
+
+            # 计算新解能量
+            new_energy = self.calculate_static_energy(new_pos, joint_set)
+            delta = new_energy - current_energy
+
+            # 接受准则
+            if delta < 0 or random.random() < math.exp(-delta / temp):
+                current_pos = new_pos
+                current_energy = new_energy
+                if new_energy < best_energy:
+                    best_pos = new_pos
+                    best_energy = new_energy
+
+            # 温度衰减（线性退火）
+            temp *= 0.99
+
+        return best_pos
+
+    def optimize(self):
+        """全局静态优化流程（修改后）"""
+        # 1. 检测交集区域
+        self.detect_joint_sets()
+
+        # 2. 按复杂度降序优化每个交集区域
+        for joint_set in self.joint_sets:
+            label_indices = list(joint_set['set'])  # 获取交点集合
+            initial_positions = []
+
+            # 初始化候选位置（基于特征位置）
+            for idx in label_indices:
+                feature = self.features[idx]
+                angle = random.uniform(0, 2 * math.pi)
+                radius = feature.radius + self.labels[idx].length / 2
+                x = feature.position[0] + radius * math.cos(angle)
+                y = feature.position[1] + radius * math.sin(angle)
+                initial_positions.append((x, y))
+
+            # 执行模拟退火优化
+            optimized_positions = self.simulated_annealing(initial_positions, joint_set)
+
+            # 存储约束条件（极坐标形式）
+            for i, idx in enumerate(label_indices):
+                dx = optimized_positions[i][0] - self.features[idx].position[0]
+                dy = optimized_positions[i][1] - self.features[idx].position[1]
+                r = math.hypot(dx, dy)
+                theta = math.atan2(dy, dx)
+                self.constraints[idx] = (r, theta)
+
+            # 更新标签位置
+            for i, idx in enumerate(label_indices):
+                self.labels[idx].position = optimized_positions[i]
+
+        return self.labels
+
+def cartesian_to_polar(position):
+    """
+    将笛卡尔坐标转换为极坐标
+    :param position: (x, y) 坐标
+    :return: (r, theta) 极坐标中的半径和角度
+    """
+    x, y = position
+    r = math.sqrt(x ** 2 + y ** 2)  # 半径
+    theta = math.atan2(y, x)  # 角度
+    return r, theta
