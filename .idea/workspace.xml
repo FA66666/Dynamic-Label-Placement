@@ -4,18 +4,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="01280c7e-9b7c-4e9b-bac1-3c0b136b1a4f" name="更改" comment="更改项目结构">
-      <change afterPath="$PROJECT_DIR$/feature.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/force.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/initialize.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/input.gif" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/label.py" afterDir="false" />
+    <list default="true" id="01280c7e-9b7c-4e9b-bac1-3c0b136b1a4f" name="更改" comment="代码重构">
+      <change afterPath="$PROJECT_DIR$/Dynamic_label_movement_planning.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Dynamic_label_movement_planning.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/Generate_simulate_data.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/Global_spatiotemporal_joint_optimization.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/Update.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Global_spatiotemporal_joint_optimization.py" beforeDir="false" afterPath="$PROJECT_DIR$/Global_spatiotemporal_joint_optimization.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/force.py" beforeDir="false" afterPath="$PROJECT_DIR$/force.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -135,7 +129,7 @@
       <workItem from="1743841809808" duration="9371000" />
       <workItem from="1743855019323" duration="6607000" />
       <workItem from="1743864463724" duration="6666000" />
-      <workItem from="1743907426317" duration="4744000" />
+      <workItem from="1743907426317" duration="12560000" />
     </task>
     <task id="LOCAL-00001" summary="初始化">
       <option name="closed" value="true" />
@@ -185,7 +179,15 @@
       <option name="project" value="LOCAL" />
       <updated>1743849657647</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="代码重构">
+      <option name="closed" value="true" />
+      <created>1743927129018</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1743927129018</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -194,7 +196,8 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="初始化" />
     <MESSAGE value="更改项目结构" />
-    <option name="LAST_COMMIT_MESSAGE" value="更改项目结构" />
+    <MESSAGE value="代码重构" />
+    <option name="LAST_COMMIT_MESSAGE" value="代码重构" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/Visiual$initialize.coverage" NAME="initialize 覆盖结果" MODIFIED="1743867003554" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
@@ -205,7 +208,7 @@
     <SUITE FILE_PATH="coverage/Visiual$Global_spatiotemporal_joint_optimization.coverage" NAME="Global_spatiotemporal_joint_optimization 覆盖结果" MODIFIED="1743910024256" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Visiual$predict.coverage" NAME="predict 覆盖结果" MODIFIED="1742720504384" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Visiual$Generate_simulate_data.coverage" NAME="Generate_simulate_data 覆盖结果" MODIFIED="1743855392281" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/Visiual$main.coverage" NAME="main 覆盖结果" MODIFIED="1743926875235" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/Visiual$main.coverage" NAME="main 覆盖结果" MODIFIED="1743936503301" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Visiual$label.coverage" NAME="label 覆盖结果" MODIFIED="1743926695565" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Visiual$generate_simulate_data.coverage" NAME="generate simulate data 覆盖结果" MODIFIED="1743843560715" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Visiual$test.coverage" NAME="test 覆盖结果" MODIFIED="1743848116058" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
