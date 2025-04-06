@@ -93,7 +93,7 @@ def main():
         # 将当前帧添加到GIF帧列表
         output_frames.append(current_frame)
 
-        print(f"Processed frame {frame_idx + 1}")
+        # print(f"Processed frame {frame_idx + 1}")
 
     # 保存为GIF文件，设置每帧之间的时间间隔为100ms
     gif_output_path = 'output.gif'
@@ -115,10 +115,10 @@ def draw_labels_on_frame(frame, labels):
         height = label.length
 
         # 计算矩形坐标（左上角和右下角）
-        left = x - width // 2
-        top = y - height // 2
-        right = x + width // 2
-        bottom = y + height // 2
+        left = x - height // 2
+        top = y - width // 2
+        right = x +  height// 2
+        bottom = y + width // 2
 
         # 绘制矩形（红色边框，透明填充）
         draw.rectangle([left, top, right, bottom], outline='red', width=2)
