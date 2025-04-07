@@ -41,26 +41,29 @@ def initialize_features_from_gif(gif_path, frame_interval=1):
         # 若检测到目标颜色的点，则计算其质心（centroid）
         if red_coords.shape[0] > 0:
             red_centroid = np.mean(red_coords, axis=0)
-            red_positions.append((red_centroid[1], red_centroid[0]))
+            # 转换为 float 类型
+            red_positions.append((float(red_centroid[1]), float(red_centroid[0])))
         else:
             red_positions.append(None)
 
         if green_coords.shape[0] > 0:
             green_centroid = np.mean(green_coords, axis=0)
-            green_positions.append((green_centroid[1], green_centroid[0]))
+            # 转换为 float 类型
+            green_positions.append((float(green_centroid[1]), float(green_centroid[0])))
         else:
             green_positions.append(None)
 
         if blue_coords.shape[0] > 0:
             blue_centroid = np.mean(blue_coords, axis=0)
-            blue_positions.append((blue_centroid[1], blue_centroid[0]))
+            # 转换为 float 类型
+            blue_positions.append((float(blue_centroid[1]), float(blue_centroid[0])))
         else:
             blue_positions.append(None)
 
     # 定义一个辅助函数计算初始速度（用前两帧的位移计算平均速度）
     def compute_velocity(positions):
         if len(positions) < 2 or positions[0] is None or positions[1] is None:
-            return (0, 0)
+            return (0.0, 0.0)  # 返回 float 类型
         dx = positions[1][0] - positions[0][0]
         dy = positions[1][1] - positions[0][1]
         return (dx / frame_interval, dy / frame_interval)
@@ -75,14 +78,14 @@ def initialize_features_from_gif(gif_path, frame_interval=1):
     blue_radius = 5
 
     # 初始化 Feature 对象，取各自轨迹的第一个非 None 值作为初始位置
-    red_initial = next((pos for pos in red_positions if pos is not None), (0, 0))
-    green_initial = next((pos for pos in green_positions if pos is not None), (0, 0))
-    blue_initial = next((pos for pos in blue_positions if pos is not None), (0, 0))
+    red_initial = next((pos for pos in red_positions if pos is not None), (0.0, 0.0))
+    green_initial = next((pos for pos in green_positions if pos is not None), (0.0, 0.0))
+    blue_initial = next((pos for pos in blue_positions if pos is not None), (0.0, 0.0))
 
     # 将颜色名称作为color传入
-    red_feature = Feature(id=1, color="red", position=red_initial, velocity=red_velocity, radius=red_radius)
-    green_feature = Feature(id=2, color="green", position=green_initial, velocity=green_velocity, radius=green_radius)
-    blue_feature = Feature(id=3, color="blue", position=blue_initial, velocity=blue_velocity, radius=blue_radius)
+    red_feature = Feature(id=0, color="red", position=red_initial, velocity=red_velocity, radius=red_radius)
+    green_feature = Feature(id=1, color="green", position=green_initial, velocity=green_velocity, radius=green_radius)
+    blue_feature = Feature(id=2, color="blue", position=blue_initial, velocity=blue_velocity, radius=blue_radius)
 
     # 将检测到的每帧位置记录为轨迹（过滤掉 None 值）
     red_feature.trajectory = [pos for pos in red_positions if pos is not None]
@@ -90,6 +93,7 @@ def initialize_features_from_gif(gif_path, frame_interval=1):
     blue_feature.trajectory = [pos for pos in blue_positions if pos is not None]
 
     return [red_feature, green_feature, blue_feature]
+
 
 
 # 示例调用
