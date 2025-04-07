@@ -38,6 +38,7 @@ def main():
     # 全局静态优化
     static_optimizer = LabelOptimizer(labels, features, paramsA1, global_params['max_x'], global_params['max_y'])
     _, all_joint_set_positions = static_optimizer.optimize()
+    print(_)
 
     # 初始化动态优化所需的变量
     current_positions = first_frame_positions[0]  # 使用静态优化器返回的第一帧位置
@@ -68,6 +69,7 @@ def main():
             if frame_idx < len(feature.trajectory):
                 feature.position = feature.trajectory[frame_idx]
 
+        temp_positions = first_frame_positions[0]
         # 计算当前帧的标签位置
         if frame_idx == 0:
             # 第一帧使用静态优化结果
@@ -83,16 +85,32 @@ def main():
 
             if joint_set_positions:
                 # 如果当前帧在 all_joint_set_positions 的帧内，使用 all_joint_set_positions 中的结果
+                if len(joint_set_positions) < 3:
+                    # 把 joint_set_position 中与 temp_position 的 id 相同的 label 信息复制到 temp_position 中
+                    for label_id in joint_set_positions:
+                        if label_id in temp_positions:
+                            # 保持已存在标签 ID 的位置信息
+                            temp_positions[label_id] = joint_set_positions[label_id]
                 current_positions = joint_set_positions
             else:
-                # 否则，使用力导向方法平滑过渡标签位置
-                # 在当前标签位置和下一帧的标签位置之间进行过渡
+                # 否则，继续使用力导向优化
+                if len(current_positions) < 3:
+                    current_positions = temp_positions
+
+                # 对不足的标签执行动态优化
                 new_positions, new_velocities = dynamic_optimizer.optimize_labels(
                     initial_positions=current_positions,
                     initial_velocities=velocities,
                     time_delta=0.1,
                     max_iter=1000
                 )
+
+                # 如果新位置有缺失，暂存并更新
+                missing_labels = [label.id for label in labels if label.id not in new_positions]
+                if missing_labels:
+                    for label_id in missing_labels:
+                        new_positions[label_id] = current_positions[label_id]
+
                 current_positions = new_positions
                 velocities = new_velocities
 

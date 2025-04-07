@@ -2,15 +2,15 @@ import math
 
 # 参数设置（严格遵循论文附录A2）
 paramsA2 = {
-    'wlabel-collision': 50,  # 标签间碰撞力权重（取40-60中间值）
+    'wlabel-collision': 60,  # 标签间碰撞力权重（取40-60中间值）
     'Dlabel-collision': 30,  # 标签碰撞距离阈值
-    'wfeature-collision': 75,  # 标签-特征碰撞力权重（取50-100中间值）
+    'wfeature-collision': 100,  # 标签-特征碰撞力权重（取50-100中间值）
     'Dfeature-collision': 17,  # 标签-特征碰撞距离阈值
     'wpull': 25,  # 拉力权重
     'Dpull': 18,  # 拉力作用距离
     'c_friction': 0.7,  # 摩擦系数
     'Wtime': 15,  # 时间约束力权重
-    'Wspace': 20,  # 空间约束力权重（新增，假设值）
+    'Wspace': 20,  # 空间约束力权重
     'Dspace': 100,  # 空间约束力作用距离
     'delta_t': 5,  # 特征未来预测时间间隔
 }

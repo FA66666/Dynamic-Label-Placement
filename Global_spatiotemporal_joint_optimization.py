@@ -206,7 +206,7 @@ class LabelOptimizer:
                     dx = future_i[0] - future_j[0]
                     dy = future_i[1] - future_j[1]
                     distance = math.hypot(dx, dy)
-                    if distance < 30.0:  # 使用论文中的阈值
+                    if distance < 60.0:  # 使用论文中的阈值
                         current_set.update({i, j})
 
             if current_set:
@@ -292,11 +292,12 @@ class LabelOptimizer:
         first_frame_positions = {}
         all_joint_set_positions = []
 
+        # 针对各个 joint set 分别进行优化，并更新约束
         for idx, joint_set in enumerate(self.joint_sets):
             current_features = list(joint_set['set'])
             frame_number = joint_set['frame']
 
-            # 初始化每个标签的位置
+            # 初始化每个标签的位置（仅对 joint set 内的标签）
             initial_positions = {}
             for feature_idx in current_features:
                 feature = self.features[feature_idx]
@@ -309,34 +310,51 @@ class LabelOptimizer:
             # 使用模拟退火进行优化，返回格式为 {label_id: (x, y)}
             optimized_positions = self.simulated_annealing(initial_positions, joint_set)
 
-            # 更新约束条件
-            for i, idx in enumerate(current_features):
-                pos = optimized_positions[idx]
-                dx = pos[0] - self.features[idx].position[0]
-                dy = pos[1] - self.features[idx].position[1]
+            # 更新约束条件（joint set 内标签的约束）
+            for i, idx_feat in enumerate(current_features):
+                pos = optimized_positions[idx_feat]
+                dx = pos[0] - self.features[idx_feat].position[0]
+                dy = pos[1] - self.features[idx_feat].position[1]
                 r, theta = self.cartesian_to_polar((dx, dy))
-                self.constraints[idx] = (r, theta)
+                self.constraints[idx_feat] = (r, theta)
 
-            # 更新联合集位置
+            # 更新 joint set 的最终位置
             joint_set['position'] = optimized_positions
 
-            # 更新标签位置
-            for i, idx in enumerate(current_features):
-                self.labels[idx].position = optimized_positions[idx]
+            # 更新对应标签的位置
+            for i, idx_feat in enumerate(current_features):
+                self.labels[idx_feat].position = optimized_positions[idx_feat]
 
-            # 绘制并保存标签布局图像
+            # 绘制并保存该 joint set 的标签布局图像
             self.plot_label_layout(frame_number, joint_set, optimized_positions, output_dir, idx)
 
-            # 记录第一帧和所有联合集的标签、要素点坐标
+            # 记录 joint set 中的标签位置（注意，这里只记录 joint set 内的标签）
             if frame_number == 0:
-                first_frame_positions = {self.labels[i].id: optimized_positions[i] for i in current_features}
+                first_frame_positions = {self.labels[idx_feat].id: optimized_positions[idx_feat] for idx_feat in
+                                         current_features}
 
             all_joint_set_positions.append({
                 'frame': frame_number,
-                'positions': {self.labels[i].id: optimized_positions[i] for i in current_features}
+                'positions': {self.labels[idx_feat].id: optimized_positions[idx_feat] for idx_feat in current_features}
             })
 
-        return first_frame_positions, all_joint_set_positions
+        # 对所有标签（整个轨迹）的第0帧进行统一优化：
+        # 对于不在任一 joint set 内的标签，采用它们当前的初始位置
+        all_label_ids = [label.id for label in self.labels]
+        combined_positions = {}
+        for idx in range(len(self.labels)):
+            # 如果 joint set 中已经有，则用 joint set 中的；否则，使用当前标签的位置
+            if idx in first_frame_positions:
+                combined_positions[idx] = first_frame_positions[self.labels[idx].id]
+            else:
+                combined_positions[idx] = self.labels[idx].position
+
+        # 对所有标签进行一次全局模拟退火优化，传递全体标签的约束
+        # 构造全体标签的联合集（set）
+        full_set = {'set': list(range(len(self.labels)))}
+        final_first_frame_positions = self.simulated_annealing(combined_positions, full_set)
+
+        return final_first_frame_positions, all_joint_set_positions
 
     def plot_label_layout(self, frame_number, joint_set, optimized_positions, output_dir, joint_set_idx):
         """绘制标签布局并保存图像"""
