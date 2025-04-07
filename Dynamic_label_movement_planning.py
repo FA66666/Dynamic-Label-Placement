@@ -96,40 +96,58 @@ class DynamicLabelOptimizer:
         )
 
     def compute_time_constraint(self, i, label_positions):
-        """计算时间约束力（论文公式3.2.2），考虑标签i与其他特征j的未来位置交互"""
-        if i not in label_positions:
-            return (0.0, 0.0)  # 如果标签ID没有在字典中，跳过
-
+        """
+        计算时间约束力（论文公式3.2.2）
+        要求：基于未来特征位置计算标签与未来特征的接近程度。
+        如果特征对象具有轨迹（trajectory），则使用轨迹中的未来位置。
+        """
         total_fx = 0.0
         total_fy = 0.0
+
+        # 当前标签位置
         label_x, label_y = label_positions[i]
-        v_i = self.features[i].velocity
-        v_i_magnitude = math.hypot(v_i[0], v_i[1]) + 1e-6  # 避免除零
 
-        for j in range(len(self.features)):
-            if i != j:
-                v_j = self.features[j].velocity
-                v_j_magnitude = math.hypot(v_j[0], v_j[1]) + 1e-6  # 避免除零
-                relative_velocity = (v_j[0] - v_i[0], v_j[1] - v_i[1])
-                l_j = self.features[j].position
-                # 特征j的未来位置
-                l_j_prime = (
-                    l_j[0] + relative_velocity[0] * self.params['delta_t'],
-                    l_j[1] + relative_velocity[1] * self.params['delta_t']
-                )
-                dx = label_x - l_j_prime[0]
-                dy = label_y - l_j_prime[1]
-                distance_to_future = math.hypot(dx, dy)
-                distance_to_current = math.hypot(label_x - l_j[0], label_y - l_j[1])
+        # 获取当前特征的速度，计算未来的位置
+        feature = self.features[i]
+        trajectory = feature.trajectory  # 特征的轨迹数组
 
-                if distance_to_future > 0:
-                    ratio = distance_to_current / distance_to_future
-                    speed_factor = math.log(max(v_i_magnitude, v_j_magnitude) / min(v_i_magnitude, v_j_magnitude) + 1)
-                    magnitude = self.params['Wtime'] * speed_factor * min(ratio - 1, 0)
-                    nx = dx / distance_to_future
-                    ny = dy / distance_to_future
-                    total_fx += magnitude * nx
-                    total_fy += magnitude * ny
+        # 获取未来特征位置（假设 delta_t 是时间步长）
+        future_frame = min(len(trajectory) - 1, int(self.params['delta_t']))  # 计算未来的帧数
+        future_position = trajectory[future_frame]
+
+        # 计算标签与未来特征位置的距离
+        dx_future = label_x - future_position[0]
+        dy_future = label_y - future_position[1]
+        distance_future = math.hypot(dx_future, dy_future)
+
+        # 计算标签与特征当前时间的距离
+        feature_x, feature_y = feature.position
+        dx_current = label_x - feature_x
+        dy_current = label_y - feature_y
+        distance_current = math.hypot(dx_current, dy_current)
+
+        # 目标：如果标签与未来位置的距离较大，则施加拉力将标签向未来位置拉近
+        # 定义差值：delta = distance_future - distance_current
+        delta = distance_future - distance_current
+
+        # 计算速度比和距离比
+        speed_ratio = max(math.hypot(feature.velocity[0], feature.velocity[1]), 1)  # 保证不除零
+        distance_ratio = distance_future / (distance_current + 1e-6)  # 防止除零
+
+        # 当未来距离较小时，施加排斥力
+        if distance_future < self.params['Dfeature-collision']:  # 可调整阈值
+            magnitude = self.params['Wtime'] * math.log(speed_ratio + 1)
+            nx = dx_future / distance_future if distance_future != 0 else 0
+            ny = dy_future / distance_future if distance_future != 0 else 0
+
+            # 如果 delta > 0，施加正向力，拉近标签；如果 delta < 0，施加反向力，避免过早靠近
+            if delta > 0:
+                total_fx += magnitude * nx
+                total_fy += magnitude * ny
+            else:
+                total_fx += -magnitude * nx
+                total_fy += -magnitude * ny
+
         return (total_fx, total_fy)
 
     def compute_space_constraint(self, i, label_positions):

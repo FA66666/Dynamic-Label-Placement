@@ -1,5 +1,4 @@
 from PIL import Image, ImageSequence, ImageDraw
-
 from Dynamic_label_movement_planning import DynamicLabelOptimizer, paramsA2 as dynamic_params
 from Global_spatiotemporal_joint_optimization import LabelOptimizer, paramsA1 as static_params, paramsA1
 from initialize import initialize_features_from_gif
@@ -22,7 +21,7 @@ def main():
     labels = []
     for feature in features:
         initial_x = feature.position[0] + feature.radius + 20
-        initial_y = feature.position[1]
+        initial_y = feature.position[1] + 30
         label = Label(
             id=feature.id,
             feature=feature,
@@ -39,9 +38,6 @@ def main():
     # 全局静态优化
     static_optimizer = LabelOptimizer(labels, features, paramsA1, global_params['max_x'], global_params['max_y'])
     _, all_joint_set_positions = static_optimizer.optimize()
-
-    print(" all_joint_set_positions:", all_joint_set_positions)
-    print("first_frame_positions:",first_frame_positions)
 
     # 初始化动态优化所需的变量
     current_positions = first_frame_positions[0]  # 使用静态优化器返回的第一帧位置
@@ -89,8 +85,8 @@ def main():
                 # 如果当前帧在 all_joint_set_positions 的帧内，使用 all_joint_set_positions 中的结果
                 current_positions = joint_set_positions
             else:
-                # 否则，使用动态优化
-                current_positions = first_frame_positions[0]
+                # 否则，使用力导向方法平滑过渡标签位置
+                # 在当前标签位置和下一帧的标签位置之间进行过渡
                 new_positions, new_velocities = dynamic_optimizer.optimize_labels(
                     initial_positions=current_positions,
                     initial_velocities=velocities,
@@ -117,7 +113,7 @@ def main():
         gif_output_path,
         save_all=True,
         append_images=output_frames[1:],
-        duration=500,  # 每帧显示时间为100毫秒
+        duration=100,  # 每帧显示时间为100毫秒
         loop=0  # 动画循环播放
     )
     print(f"Saved GIF to {gif_output_path}")

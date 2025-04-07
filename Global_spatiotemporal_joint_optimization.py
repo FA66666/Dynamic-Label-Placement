@@ -12,9 +12,10 @@ paramsA1 = {
     'Wout-of-axes': 320,
     'Wintersect': 1,  # leader线交叉惩罚权重
     'Wradius': 20,
-    'Wangle': 10
+    'Wangle': 10,
+    'Dlabel-collision': 30,
+    'delta_t': 5  # 特征未来预测时间间隔
 }
-
 
 class LabelOptimizer:
     def __init__(self, labels, features, params, max_x=1000, max_y=1000):
@@ -163,8 +164,6 @@ class LabelOptimizer:
         best_energy = current_energy
         temp = 1000.0
 
-        print("Global_spatiotemporal_joint_optimization.py_current_pos:", current_pos)
-
         for _ in range(max_iter):
             # 生成新解（仅扰动当前联合集中的标签）
             new_pos = {}
@@ -190,20 +189,26 @@ class LabelOptimizer:
         return best_pos  # 返回的是字典格式：{label_id: (x, y)}
 
     def detect_joint_sets(self):
-        """检测空间-时间交集区域并排序"""
+        """检测时空交集区域（joint sets）"""
         joint_sets = []
         max_frames = len(self.features[0].trajectory) if self.features else 0
 
         for t in range(max_frames):
             current_positions = [f.trajectory[t] for f in self.features]
             current_set = set()
+
+            # 检测轨迹在时间t的未来delta_t内的空间交叠
             for i in range(len(self.features)):
                 for j in range(i + 1, len(self.features)):
-                    dx = current_positions[i][0] - current_positions[j][0]
-                    dy = current_positions[i][1] - current_positions[j][1]
+                    # 计算未来delta_t时间的轨迹交叠
+                    future_i = self.features[i].trajectory[min(t + self.params['delta_t'], max_frames - 1)]
+                    future_j = self.features[j].trajectory[min(t + self.params['delta_t'], max_frames - 1)]
+                    dx = future_i[0] - future_j[0]
+                    dy = future_i[1] - future_j[1]
                     distance = math.hypot(dx, dy)
-                    if distance < 30.0:
+                    if distance < 30.0:  # 使用论文中的阈值
                         current_set.update({i, j})
+
             if current_set:
                 joint_sets.append({'set': current_set, 'frame': t})
 
