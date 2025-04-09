@@ -38,22 +38,22 @@ def main():
 
         # 全局静态优化
     static_optimizer = LabelOptimizer(labels, features, paramsA1, global_params['max_x'], global_params['max_y'])
-    first_frame_positions_dict, all_joint_set_positions = static_optimizer.optimize()
+    _, all_joint_set_positions = static_optimizer.optimize()
     
     # 使用第一帧坐标更新标签位置
     for label in labels:
-        if label.id in first_frame_positions_dict:
-            label.position = first_frame_positions_dict[label.id]
+        if label.id in _:
+            label.position = _[label.id]
     
-    # 使用更新后的标签重新初始化静态优化器
-    static_optimizer = LabelOptimizer(labels, features, paramsA1, global_params['max_x'], global_params['max_y'])
-    _, all_joint_set_positions = static_optimizer.optimize()
+    # # 使用更新后的标签重新初始化静态优化器
+    # static_optimizer = LabelOptimizer(labels, features, paramsA1, global_params['max_x'], global_params['max_y'])
+    # _, all_joint_set_positions = static_optimizer.optimize()
     
     print("全局静态优化完成")
-    print(_)
+    # print(_)
     # 初始化动态优化所需的变量
     current_positions = _  # 使用静态优化器返回的第一帧位置
-    print(current_positions)
+    # print(current_positions)
     velocities = {label.id: (0.0, 0.0) for label in labels}  # 使用字典形式初始化速度
 
     # 初始化动态优化器

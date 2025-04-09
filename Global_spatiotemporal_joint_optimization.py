@@ -58,7 +58,7 @@ class LabelOptimizer:
         # 计算重叠区域
         overlap_x = max(0, min(rect1['x_max'], rect2['x_max']) - max(rect1['x_min'], rect2['x_min']))
         overlap_y = max(0, min(rect1['y_max'], rect2['y_max']) - max(rect1['y_min'], rect2['y_min']))
-        return self.params['Wlabel-label'] * overlap_x * overlap_y
+        return  overlap_x * overlap_y
 
     def calculate_rectangle_circle_overlap(self, i, label_positions):
         """计算矩形与圆的重叠面积（精确计算）"""
@@ -85,7 +85,7 @@ class LabelOptimizer:
             return 0
 
         # 精确计算重叠面积（使用积分或几何分解）
-        return self.params['Wlabel-feature'] * min(math.pi * feature_radius ** 2, l * w)
+        return  min(math.pi * feature_radius ** 2, l * w)
 
     def cartesian_to_polar(self, cartesian):
         """笛卡尔坐标转极坐标"""
