@@ -2,12 +2,13 @@ import math
 import random
 import matplotlib.pyplot as plt
 import os
+import numpy as np
 
 # 参数设置（参考论文附录A1）
 paramsA1 = {
     'Wlabel-label': 80,
     'Wlabel-feature': 50,
-    'Worient': [1, 2, 3, 4],  # 四个象限的权重
+    'Worient': [4, 3, 2, 1],  # 四个象限的权重
     'Wdistance': 20,
     'Wout-of-axes': 320,
     'Wintersect': 1,  # leader线交叉惩罚权重
@@ -26,6 +27,7 @@ class LabelOptimizer:
         self.joint_sets = []
         self.max_x = max_x  # 可视区域最大X坐标
         self.max_y = max_y  # 可视区域最大Y坐标
+
 
     def calculate_angle_delta(self, theta):
         """计算标签的角度差异"""
@@ -189,97 +191,256 @@ class LabelOptimizer:
         return best_pos  # 返回的是字典格式：{label_id: (x, y)}
 
     def detect_joint_sets(self):
-        """检测时空交集区域（joint sets）"""
+        """检测时空交集区域（joint sets）- 按照论文方法改进"""
         joint_sets = []
         max_frames = len(self.features[0].trajectory) if self.features else 0
-
+        
         for t in range(max_frames):
-            current_positions = [f.trajectory[t] for f in self.features]
             current_set = set()
-
-            # 检测轨迹在时间t的未来delta_t内的空间交叠
+            
+            # 计算每对特征在当前时间点及未来时间段内的空间关系
             for i in range(len(self.features)):
                 for j in range(i + 1, len(self.features)):
-                    # 计算未来delta_t时间的轨迹交叠
-                    future_i = self.features[i].trajectory[min(t + self.params['delta_t'], max_frames - 1)]
-                    future_j = self.features[j].trajectory[min(t + self.params['delta_t'], max_frames - 1)]
-                    dx = future_i[0] - future_j[0]
-                    dy = future_i[1] - future_j[1]
-                    distance = math.hypot(dx, dy)
-                    if distance < 60.0:  # 使用论文中的阈值
+                    # 检查当前帧到未来delta_t帧内的轨迹
+                    has_interaction = False
+                    for dt in range(min(self.params['delta_t'], max_frames - t)):
+                        future_frame = t + dt
+                        pos_i = self.features[i].trajectory[future_frame]
+                        pos_j = self.features[j].trajectory[future_frame]
+                        
+                        # 计算特征之间的距离和它们的标签大小
+                        dx = pos_i[0] - pos_j[0]
+                        dy = pos_i[1] - pos_j[1]
+                        distance = math.hypot(dx, dy)
+                        
+                        # # 考虑标签大小的动态阈值
+                        # label_i_size = math.hypot(self.labels[i].width, self.labels[i].length)
+                        # label_j_size = math.hypot(self.labels[j].width, self.labels[j].length)
+                        # threshold = self.params['Dlabel-collision']
+                        
+                        if distance <10:
+                            has_interaction = True
+                            break
+                    
+                    if has_interaction:
                         current_set.update({i, j})
-
+            
             if current_set:
-                joint_sets.append({'set': current_set, 'frame': t})
+                # 计算joint set的复杂度
+                complexity = self.calculate_joint_set_complexity(current_set, t)
+                joint_sets.append({
+                    'set': current_set, 
+                    'frame': t,
+                    'complexity': complexity
+                })
+        
+        # 按复杂度降序排序
+        self.joint_sets = sorted(joint_sets, key=lambda x: x['complexity'], reverse=True)
 
-        # 按集合大小降序排序
-        self.joint_sets = sorted(joint_sets, key=lambda x: -len(x['set']))
+    def calculate_joint_set_complexity(self, feature_set, frame):
+        """计算joint set的复杂度"""
+        complexity = 0
+        features_list = list(feature_set)
+        
+        # 计算特征密度
+        positions = [self.features[i].trajectory[frame] for i in features_list]
+        min_x = min(p[0] for p in positions)
+        max_x = max(p[0] for p in positions)
+        min_y = min(p[1] for p in positions)
+        max_y = max(p[1] for p in positions)
+        
+        area = (max_x - min_x + 1) * (max_y - min_y + 1)
+        density = len(feature_set) / area if area > 0 else float('inf')
+        
+        # 计算轨迹交叉
+        intersections = 0
+        for i in range(len(features_list)):
+            for j in range(i + 1, len(features_list)):
+                if self.check_trajectory_intersection(features_list[i], features_list[j]):
+                    intersections += 1
+        
+        # 综合考虑密度和交叉数
+        complexity = density * (1 + intersections)
+        return complexity
+
+    def check_trajectory_intersection(self, feature_i, feature_j):
+        """检查两个特征的轨迹是否相交"""
+        traj_i = self.features[feature_i].trajectory
+        traj_j = self.features[feature_j].trajectory
+        
+        for t in range(len(traj_i) - 1):
+            line1 = (traj_i[t], traj_i[t + 1])
+            line2 = (traj_j[t], traj_j[t + 1])
+            if self.lines_intersect(line1, line2):
+                return True
+        return False
 
     def calculate_static_energy(self, label_positions, joint_set):
-        """静态能量计算"""
+        """改进的静态能量计算"""
         E_static = 0
+        E_overlap = 0
+        E_position = 0
+        E_aesthetics = 0
         E_constraint = 0
-
+        
         current_features = list(joint_set['set'])
-
-        # 计算静态能量项（E_static）
+        
+        # 计算重叠能量 (E_overlap)
         for i in range(len(current_features)):
-            for j in range(i + 1, len(current_features)):  # 避免重复计算，i 和 j 必须是联合集中的点
+            for j in range( len(current_features)):
+                if i==j:
+                    continue
                 global_i = current_features[i]
                 global_j = current_features[j]
+                
+                # 标签间重叠
+                O_ij = self.calculate_rectangle_overlap(global_i, global_j, label_positions)
+                E_overlap += self.params['Wlabel-label'] * O_ij
 
-                # 计算标签间重叠
-                overlap_area = self.calculate_rectangle_overlap(global_i, global_j, label_positions)
-                E_static += self.params['Wlabel-label'] * overlap_area
-
-                label_i_pos = label_positions[global_i]  # 使用标签 ID 获取位置
-                label_j_pos = label_positions[global_j]
-                E_static += self.calculate_rectangle_circle_overlap(global_i, label_i_pos) * self.params[
-                    'Wlabel-feature']
-                E_static += self.calculate_rectangle_circle_overlap(global_j, label_j_pos) * self.params[
-                    'Wlabel-feature']
-
-        # 计算位置能量项（E_position）
         for i in range(len(current_features)):
-            feature = self.features[current_features[i]]
-            label_pos = label_positions[current_features[i]]
-
-            dx = label_pos[0] - feature.position[0]
-            dy = label_pos[1] - feature.position[1]
+            for j in range(len(current_features)):
+                global_i = current_features[i]
+                global_j = current_features[j]
+                           
+                # 标签与特征重叠
+                P_ij = self.calculate_label_feature_overlap(global_i, global_j, label_positions)
+                E_overlap += self.params['Wlabel-feature'] * P_ij
+        
+        
+        # 计算位置能量 (E_position)
+        for i in range(len(current_features)):
+            feature_idx = current_features[i]
+            label_pos = label_positions[feature_idx]
+            feature_pos = self.features[feature_idx].position
+            
+            # 计算极坐标
+            dx = label_pos[0] - feature_pos[0]
+            dy = label_pos[1] - feature_pos[1]
             r, theta = self.cartesian_to_polar((dx, dy))
+            
+            # 计算方向能量
+            quadrant = self.get_quadrant(theta)
+            E_position += self.params['Worient'][quadrant-1] * self.calculate_angle_delta(theta)
+            
+            # 计算距离能量
+            E_position += self.params['Wdistance'] * r
+        
+        # 计算美学能量 (E_aesthetics)
+        out_of_axes_area = self.check_out_of_axes([label_positions[i] for i in current_features])
+        leader_intersections = self.calculate_leader_intersections(label_positions)
+        E_aesthetics = (
+            self.params['Wout-of-axes'] * out_of_axes_area +
+            self.params['Wintersect'] * leader_intersections
+        )
+        
+        # 计算约束能量 (E_constraint)
+        if self.constraints:
+            for idx in current_features:
+                if idx in self.constraints:
+                    current_pos = label_positions[idx]
+                    dx = current_pos[0] - self.features[idx].position[0]
+                    dy = current_pos[1] - self.features[idx].position[1]
+                    r_p, theta_p = self.cartesian_to_polar((dx, dy))
+                    r_l, theta_l = self.constraints[idx]
+                    
+                    E_constraint += (
+                        self.params['Wradius'] * abs(r_p - r_l) +
+                        self.params['Wangle'] * abs(theta_p - theta_l)
+                    )
+        
+        return E_overlap + E_position + E_aesthetics + E_constraint
 
-            energy_values = []
-            for w_orient in self.params['Worient']:
-                E_position = w_orient * self.calculate_angle_delta(theta) + self.params['Wdistance'] * r
-                energy_values.append(E_position)
+    def calculate_label_feature_overlap(self, label_idx, feature_idx, label_positions):
+        """精确计算标签与特征的重叠面积"""
+        label_pos = label_positions[label_idx]
+        feature_pos = self.features[feature_idx].position
+        feature_radius = self.features[feature_idx].radius
+        label_width = self.labels[label_idx].width
+        label_height = self.labels[label_idx].length
+        
+        # 计算矩形的四个顶点
+        rect_corners = [
+            (label_pos[0], label_pos[1]),
+            (label_pos[0] + label_width, label_pos[1]),
+            (label_pos[0], label_pos[1] + label_height),
+            (label_pos[0] + label_width, label_pos[1] + label_height)
+        ]
+        
+        # 计算圆心到矩形各边的最短距离
+        min_dist = float('inf')
+        for i in range(4):
+            p1 = rect_corners[i]
+            p2 = rect_corners[(i+1)%4]
+            dist = self.point_to_line_distance(feature_pos, p1, p2)
+            min_dist = min(min_dist, dist)
+        
+        # 如果最短距离大于特征半径，则无重叠
+        if min_dist > feature_radius:
+            return 0
+        
+        # 计算重叠面积（使用数值积分方法）
+        overlap_area = self.numerical_integration_overlap(
+            feature_pos, feature_radius,
+            label_pos, label_width, label_height
+        )
+        
+        return overlap_area
 
-            E_position = min(energy_values)
+    def point_to_line_distance(self, point, line_start, line_end):
+        """计算点到线段的最短距离"""
+        x0, y0 = point
+        x1, y1 = line_start
+        x2, y2 = line_end
+        
+        # 线段长度的平方
+        l2 = (x2-x1)**2 + (y2-y1)**2
+        
+        if l2 == 0:
+            return math.hypot(x0-x1, y0-y1)
+        
+        # 参数t表示投影点在线段上的位置
+        t = max(0, min(1, ((x0-x1)*(x2-x1) + (y0-y1)*(y2-y1))/l2))
+        
+        # 投影点坐标
+        projection_x = x1 + t*(x2-x1)
+        projection_y = y1 + t*(y2-y1)
+        
+        return math.hypot(x0-projection_x, y0-projection_y)
 
-            E_static += E_position
+    def numerical_integration_overlap(self, circle_center, circle_radius, rect_pos, rect_width, rect_height):
+        """使用数值积分计算圆与矩形的重叠面积"""
+        dx = 0.5  # 积分步长
+        dy = 0.5
+        
+        overlap_area = 0
+        x_start = max(rect_pos[0], circle_center[0] - circle_radius)
+        x_end = min(rect_pos[0] + rect_width, circle_center[0] + circle_radius)
+        y_start = max(rect_pos[1], circle_center[1] - circle_radius)
+        y_end = min(rect_pos[1] + rect_height, circle_center[1] + circle_radius)
+        
+        for x in np.arange(x_start, x_end, dx):
+            for y in np.arange(y_start, y_end, dy):
+                # 检查点是否在圆内和矩形内
+                in_circle = (x - circle_center[0])**2 + (y - circle_center[1])**2 <= circle_radius**2
+                in_rect = (x >= rect_pos[0] and x <= rect_pos[0] + rect_width and
+                          y >= rect_pos[1] and y <= rect_pos[1] + rect_height)
+                
+                if in_circle and in_rect:
+                    overlap_area += dx * dy
+        
+        return overlap_area
 
-        # 计算美学能量项（E_aesthetics）
-        for i in range(len(current_features)):
-            X = self.check_out_of_axes([label_positions[current_features[i]]])
-            I = self.calculate_leader_intersections(label_positions)
-            E_aesthetics = self.params['Wout-of-axes'] * X + self.params['Wintersect'] * I
-            E_static += E_aesthetics
-
-        # 计算约束能量项（E_constraint）
-        common_features = set(current_features).intersection(self.constraints.keys())
-        for idx in common_features:
-            current_pos = label_positions[current_features.index(idx)]
-            dx = current_pos[0] - self.features[idx].position[0]
-            dy = current_pos[1] - self.features[idx].position[1]
-            r_p, theta_p = self.cartesian_to_polar((dx, dy))
-
-            r_l, theta_l = self.constraints[idx]
-
-            E_constraint += (
-                    self.params['Wradius'] * abs(r_p - r_l) +
-                    self.params['Wangle'] * abs(theta_p - theta_l)
-            )
-
-        return E_static + E_constraint
+    def get_quadrant(self, theta):
+        """根据角度确定象限"""
+        theta = theta % (2 * math.pi)
+        if 0 <= theta < math.pi/2:
+            return 1
+        elif math.pi/2 <= theta < math.pi:
+            return 2
+        elif math.pi <= theta < 3*math.pi/2:
+            return 3
+        else:
+            return 4
 
     def optimize(self):
         """全局静态优化流程"""
