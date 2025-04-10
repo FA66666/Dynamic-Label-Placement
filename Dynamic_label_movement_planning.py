@@ -26,8 +26,8 @@ class DynamicLabelOptimizer:
 
     def compute_label_label_repulsion(self, i, j, label_positions):
         """计算标签之间的排斥力（论文公式3.2.1）"""
-        if i not in label_positions or j not in label_positions:
-            return (0.0, 0.0)  # 如果标签ID没有在字典中，跳过
+        # if i not in label_positions or j not in label_positions:
+        #     return (0.0, 0.0)  # 如果标签ID没有在字典中，跳过
 
         x1, y1 = label_positions[i]
         x2, y2 = label_positions[j]
@@ -46,20 +46,30 @@ class DynamicLabelOptimizer:
 
     def compute_label_feature_repulsion(self, i, label_positions):
         """计算标签与特征的排斥力（论文公式3.2.1）"""
-        if i not in label_positions:
-            return (0.0, 0.0)  # 如果标签ID没有在字典中，跳过
-
+        total_fx = 0.0
+        total_fy = 0.0
+        
         label_x, label_y = label_positions[i]
-        feature_x, feature_y = self.features[i].position
         s_i = math.hypot(self.labels[i].width, self.labels[i].length) / 2
-        r_j = self.features[i].radius
-        distance = math.hypot(label_x - feature_x, label_y - feature_y)
-        d = distance - 0.5 * (s_i + r_j)
-
-        magnitude = self.params['wfeature-collision'] * min(d / self.params['Dfeature-collision'] - 1, 0)
-        nx = (label_x - feature_x) /(distance+1e-4)
-        ny = (label_y - feature_y) /(distance+1e-4)
-        return (magnitude * nx, magnitude * ny)
+        
+        # 计算与所有特征的排斥力
+        for j in range(len(self.features)):
+            if i==j:
+                continue
+            feature_x, feature_y = self.features[j].position
+            r_j = self.features[j].radius
+            distance = math.hypot(label_x - feature_x, label_y - feature_y)
+            d = distance - 0.5 * (s_i + r_j)
+            
+            # 只有当距离小于阈值时才计算排斥力
+            if d < 0:
+                magnitude = self.params['wfeature-collision'] * min(d / self.params['Dfeature-collision'] - 1, 0)
+                nx = (label_x - feature_x) /(distance+1e-4)
+                ny = (label_y - feature_y) /(distance+1e-4)
+                total_fx += magnitude * nx
+                total_fy += magnitude * ny
+        
+        return (total_fx, total_fy)
 
     def compute_pulling_force(self, i, label_positions):
         """计算标签拉力（论文公式3.2.1）"""
@@ -74,7 +84,6 @@ class DynamicLabelOptimizer:
         effective_distance = math.fabs(distance - 0.5 * (s_i + r_i))
 
         if effective_distance <= self.params['Dpull']:
-            # print("effective_distance",effective_distance)
             return (0.0, 0.0)
 
 
@@ -122,17 +131,10 @@ class DynamicLabelOptimizer:
         distance = math.hypot(dx, dy)
              
         # 按论文公式计算
-        # 确保速度比率至少为1，避免对数域错误
-        if v_i_mag < 1e-5 and v_j_mag < 1e-5:
-            return (0.0, 0.0)  # 如果两个特征速度都接近零，不施加时间约束力
-            
         velocity_ratio = max(v_i_mag, v_j_mag) / (min(v_i_mag, v_j_mag) + 1e-6)  # 防止除零
         
-        # 确保速度比率至少为1，避免负对数
-        velocity_ratio = max(1.0, velocity_ratio)
-        
         # 计算力的大小
-        magnitude = self.params['Wtime'] * math.log(velocity_ratio) * min(distance / self.params['Dfeature-collision'] - 1, 0)
+        magnitude = self.params['Wtime'] * math.log(velocity_ratio+1) * min(distance / self.params['Dfeature-collision'] - 1, 0)
         
         # 计算方向
         nx = dx / distance
@@ -226,8 +228,6 @@ class DynamicLabelOptimizer:
             new_vx = velocities[i][0] + acceleration_x * time_delta
             new_vy = velocities[i][1] + acceleration_y * time_delta
 
-            print("new_vx",velocities[i][0] * time_delta)
-            print("new_vy",velocities[i][1] * time_delta)
             # 更新位置
 
             new_x = label_positions[i][0] + velocities[i][0] * time_delta
@@ -240,7 +240,6 @@ class DynamicLabelOptimizer:
             # 更新字典中的位置和速度
             new_positions[i] = (new_x, new_y)
             new_velocities[i] = (new_vx, new_vy)
-        # print(new_velocities)
         return new_positions, new_velocities
 
     def optimize_labels(self, initial_positions, initial_velocities, time_delta, max_iter=1000):
@@ -248,7 +247,6 @@ class DynamicLabelOptimizer:
         current_positions = initial_positions.copy()  # 字典格式
         current_velocities = initial_velocities.copy()  # 字典格式
 
-        # print(current_positions)
         for _ in range(max_iter):
             # 使用字典格式的当前位置和速度
             new_positions, new_velocities = self.update_positions(

@@ -13,7 +13,7 @@ paramsA1 = {
     'Wout-of-axes': 320,
     'Wintersect': 1,  # leader线交叉惩罚权重
     'Wradius': 2,
-    'Wangle': 1,
+    'Wangle': 2,
     'delta_t': 5  # 特征未来预测时间间隔
 }
 
@@ -179,7 +179,6 @@ class LabelOptimizer:
         intersections = 0
         # 确保 label_positions 中不包含 None 值
         valid_positions = [pos for pos in label_positions if pos is not None]
-        # print(label_positions)
 
         # 遍历每一对有效标签位置
         for i in valid_positions:
@@ -255,13 +254,12 @@ class LabelOptimizer:
                         distance = math.hypot(dx, dy)
                         
                         
-                        if distance < 5:
+                        if distance < 1:
                             has_interaction = True
                             break
                     
                     if has_interaction:
                         current_set.update({i, j})
-            
             if current_set:
                 # 计算joint set的复杂度
                 complexity = self.calculate_joint_set_complexity(current_set, t)
@@ -300,8 +298,7 @@ class LabelOptimizer:
         # 综合考虑密度和交叉数
         complexity = density * (1 + intersections)
         return complexity
-
-    
+  
     def calculate_static_energy(self, label_positions, joint_set):
         """改进的静态能量计算"""
         E_static = 0
@@ -377,7 +374,6 @@ class LabelOptimizer:
     def simulated_annealing(self, initial_positions, joint_set, max_iter=5000):
         """模拟退火优化"""
         current_features = list(joint_set['set'])
-        num_labels = len(current_features)
         current_pos = initial_positions.copy()
         best_pos = current_pos.copy()  # 初始最优位置就是当前的位置
         current_energy = self.calculate_static_energy(current_pos, joint_set)
@@ -457,6 +453,9 @@ class LabelOptimizer:
                 for idx_feat in current_features:
                     first_frame_positions[idx_feat] = optimized_positions[idx_feat]
 
+            if len(optimized_positions) <3 :
+                continue
+        
             all_joint_set_positions.append({
                 'frame': frame_number,
                 'positions': {idx_feat: optimized_positions[idx_feat] for idx_feat in current_features}

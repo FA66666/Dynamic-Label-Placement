@@ -59,6 +59,28 @@ def initialize_features_from_gif(gif_path, frame_interval=1):
             blue_positions.append((float(blue_centroid[1]), float(blue_centroid[0])))
         else:
             blue_positions.append(None)
+            
+        # 当前帧索引
+        current_frame = len(red_positions) - 1
+        
+        # 获取当前帧的三个点的数据
+        current_positions = [red_positions[current_frame], green_positions[current_frame], blue_positions[current_frame]]
+        
+        # 计算当前帧中非空点的数量
+        non_none_count = sum(1 for pos in current_positions if pos is not None)
+        
+        # 如果有1或2个空点，则用非空点数据填充
+        if 0 < non_none_count < 3:
+            # 找到第一个非空点
+            first_valid_position = next((pos for pos in current_positions if pos is not None), None)
+            
+            # 用找到的非空点数据填充空点
+            if red_positions[current_frame] is None:
+                red_positions[current_frame] = first_valid_position
+            if green_positions[current_frame] is None:
+                green_positions[current_frame] = first_valid_position
+            if blue_positions[current_frame] is None:
+                blue_positions[current_frame] = first_valid_position
 
     # 定义一个辅助函数计算初始速度（用前两帧的位移计算平均速度）
     def compute_velocity(positions):
@@ -107,4 +129,5 @@ if __name__ == '__main__':
         print(f"  Color: {feature.color}")
         print(f"  Initial Position: {feature.position}")
         print(f"  Velocity: {feature.velocity}")
+        print(f"  Trajectory_Length: {len(feature.trajectory)}")
         print(f"  Trajectory: {feature.trajectory}")

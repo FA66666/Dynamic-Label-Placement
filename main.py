@@ -15,14 +15,14 @@ global_params = {
 
 def main():
     # 读取GIF并初始化特征点
-    gif_path = 'input.gif'
+    gif_path = 'input2.gif'
     features = initialize_features_from_gif(gif_path)
 
     # 创建标签对象（初始位置在特征右侧）
     labels = []
     for feature in features:
-        initial_x = feature.position[0] + 16 + 10
-        initial_y = feature.position[1]
+        initial_x = feature.position[0] + 50
+        initial_y = feature.position[1] 
         label = Label(
             id=feature.id,
             feature=feature,
@@ -63,8 +63,6 @@ def main():
 
     output_frames = []  # 这里收集每一帧
 
-    # temp_positions = first_frame_position
-
     # 处理每一帧并添加到GIF帧列表
     for frame_idx in range(len(frames)):  # 生成100帧GIF
         current_frame = frames[frame_idx % len(frames)]  # 循环使用现有帧
@@ -87,9 +85,6 @@ def main():
                 max_iter=1
             )
         else:
-            # if len(current_positions) < 3:
-            #     current_positions = temp_positions
-
             # 对不足的标签执行动态优化
             new_positions, new_velocities = dynamic_optimizer.optimize_labels(
                 initial_positions=current_positions,
@@ -98,14 +93,7 @@ def main():
                 max_iter=1
             )
 
-            # 如果新位置有缺失，暂存并更新
-            missing_labels = [label.id for label in labels if label.id not in new_positions]
-            if missing_labels:
-                for label_id in missing_labels:
-                    new_positions[label_id] = current_positions[label_id]
-
             current_positions = new_positions
-            # temp_positions = new_positions
             velocities = new_velocities
 
         # 更新标签位置
@@ -113,6 +101,7 @@ def main():
             labels[i].position = current_positions[label_id]  # 使用 ID 从字典中获取位置
             labels[i].velocity = velocities[label_id]  # 使用 ID 从字典中获取速度
         print(frame_idx,"labels",current_positions)
+
         # 绘制当前帧的标签
         draw_labels_on_frame(current_frame, labels)
 
