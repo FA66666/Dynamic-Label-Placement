@@ -21,7 +21,7 @@ def main():
     # 创建标签对象（初始位置在特征右侧）
     labels = []
     for feature in features:
-        initial_x = feature.position[0] 
+        initial_x = feature.position[0] + 16 + 10
         initial_y = feature.position[1]
         label = Label(
             id=feature.id,
@@ -33,30 +33,21 @@ def main():
         )
         labels.append(label)
 
-    # 设置第一帧标签位置
-    first_frame_positions = {0: {label.id: label.position for label in labels}}  # 保存第一帧标签位置
-
         # 全局静态优化
     static_optimizer = LabelOptimizer(labels, features, paramsA1, global_params['max_x'], global_params['max_y'])
-    _, all_joint_set_positions = static_optimizer.optimize()
+    first_frame_position, all_joint_set_positions = static_optimizer.optimize()
     
     # 使用第一帧坐标更新标签位置
     for label in labels:
-        if label.id in _:
-            label.position = _[label.id]
-    
-    # # 使用更新后的标签重新初始化静态优化器
-    # static_optimizer = LabelOptimizer(labels, features, paramsA1, global_params['max_x'], global_params['max_y'])
-    # _, all_joint_set_positions = static_optimizer.optimize()
+        if label.id in first_frame_position:
+            label.position = first_frame_position[label.id]
     
     print("全局静态优化完成")
-    # print(_)
-    # 初始化动态优化所需的变量
-    current_positions = _  # 使用静态优化器返回的第一帧位置
-    # print(current_positions)
+    current_positions = first_frame_position  # 使用静态优化器返回的第一帧位置
     velocities = {label.id: (0.0, 0.0) for label in labels}  # 使用字典形式初始化速度
 
     # 初始化动态优化器
+    print("labels", current_positions)
     dynamic_optimizer = DynamicLabelOptimizer(
         labels=labels,
         features=features,
@@ -72,10 +63,10 @@ def main():
 
     output_frames = []  # 这里收集每一帧
 
-    temp_positions = _
+    # temp_positions = first_frame_position
 
     # 处理每一帧并添加到GIF帧列表
-    for frame_idx in range(100):  # 生成100帧GIF
+    for frame_idx in range(len(frames)):  # 生成100帧GIF
         current_frame = frames[frame_idx % len(frames)]  # 循环使用现有帧
 
         # 更新特征位置（假设特征按轨迹移动）
@@ -85,52 +76,43 @@ def main():
         # 计算当前帧的标签位置
         if frame_idx == 0:
             # 第一帧使用静态优化结果
-            current_positions = _
+            current_positions = first_frame_position
+            # 初始化动态优化器
             velocities = {label.id: (0.0, 0.0) for label in labels}  # 初始化速度为零
+             # 对不足的标签执行动态优化
+            new_positions, new_velocities = dynamic_optimizer.optimize_labels(
+                initial_positions=current_positions,
+                initial_velocities=velocities,
+                time_delta=0.05,
+                max_iter=1
+            )
         else:
-            # # 检查当前帧是否在 all_joint_set_positions 中的帧内
-            # joint_set_positions = None
-            # for joint_set in all_joint_set_positions:
-            #     if frame_idx == joint_set['frame']:
-            #         joint_set_positions = joint_set['positions']
-            #         break
+            # if len(current_positions) < 3:
+            #     current_positions = temp_positions
 
-            # if joint_set_positions:
-            #     # 如果当前帧在 all_joint_set_positions 的帧内，使用 all_joint_set_positions 中的结果
-            #     if len(joint_set_positions) < 3:
-            #         # 把 joint_set_position 中与 temp_position 的 id 相同的 label 信息复制到 temp_position 中
-            #         for label_id in joint_set_positions:
-            #             if label_id in temp_positions:
-            #                 # 保持已存在标签 ID 的位置信息
-            #                 temp_positions[label_id] = joint_set_positions[label_id]
-            #     current_positions = joint_set_positions
-            # else:
-                # 否则，继续使用力导向优化
-                if len(current_positions) < 3:
-                    current_positions = temp_positions
+            # 对不足的标签执行动态优化
+            new_positions, new_velocities = dynamic_optimizer.optimize_labels(
+                initial_positions=current_positions,
+                initial_velocities=velocities,
+                time_delta=0.1,
+                max_iter=1
+            )
 
-                # 对不足的标签执行动态优化
-                new_positions, new_velocities = dynamic_optimizer.optimize_labels(
-                    initial_positions=current_positions,
-                    initial_velocities=velocities,
-                    time_delta=0.1,
-                    max_iter=1000
-                )
+            # 如果新位置有缺失，暂存并更新
+            missing_labels = [label.id for label in labels if label.id not in new_positions]
+            if missing_labels:
+                for label_id in missing_labels:
+                    new_positions[label_id] = current_positions[label_id]
 
-                # 如果新位置有缺失，暂存并更新
-                missing_labels = [label.id for label in labels if label.id not in new_positions]
-                if missing_labels:
-                    for label_id in missing_labels:
-                        new_positions[label_id] = current_positions[label_id]
-
-                current_positions = new_positions
-                velocities = new_velocities
+            current_positions = new_positions
+            # temp_positions = new_positions
+            velocities = new_velocities
 
         # 更新标签位置
         for i, label_id in enumerate(current_positions):
             labels[i].position = current_positions[label_id]  # 使用 ID 从字典中获取位置
             labels[i].velocity = velocities[label_id]  # 使用 ID 从字典中获取速度
-
+        print(frame_idx,"labels",current_positions)
         # 绘制当前帧的标签
         draw_labels_on_frame(current_frame, labels)
 

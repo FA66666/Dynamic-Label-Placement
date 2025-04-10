@@ -12,7 +12,7 @@ paramsA2 = {
     'Wtime': 15,  # 时间约束力权重
     'Wspace': 20,  # 空间约束力权重
     'Dspace': 100,  # 空间约束力作用距离
-    'delta_t': 5,  # 特征未来预测时间间隔
+    'delta_t': 0.1,  # 特征未来预测时间间隔
 }
 
 class DynamicLabelOptimizer:
@@ -31,8 +31,8 @@ class DynamicLabelOptimizer:
 
         x1, y1 = label_positions[i]
         x2, y2 = label_positions[j]
-        s_i = self.labels[i].length
-        s_j = self.labels[j].length
+        s_i = math.hypot(self.labels[i].width, self.labels[i].length) / 2
+        s_j = math.hypot(self.labels[j].width, self.labels[j].length) / 2
         distance = math.hypot(x1 - x2, y1 - y2)
         d = distance - 0.5 * (s_i + s_j)
 
@@ -51,7 +51,7 @@ class DynamicLabelOptimizer:
 
         label_x, label_y = label_positions[i]
         feature_x, feature_y = self.features[i].position
-        s_i = self.labels[i].length
+        s_i = math.hypot(self.labels[i].width, self.labels[i].length) / 2
         r_j = self.features[i].radius
         distance = math.hypot(label_x - feature_x, label_y - feature_y)
         d = distance - 0.5 * (s_i + r_j)
@@ -68,13 +68,15 @@ class DynamicLabelOptimizer:
 
         label_x, label_y = label_positions[i]
         feature_x, feature_y = self.features[i].position
-        s_i = self.labels[i].length
+        s_i = math.hypot(self.labels[i].width, self.labels[i].length) / 2
         r_i = self.features[i].radius
         distance = math.hypot(label_x - feature_x, label_y - feature_y)
         effective_distance = math.fabs(distance - 0.5 * (s_i + r_i))
 
         if effective_distance <= self.params['Dpull']:
+            # print("effective_distance",effective_distance)
             return (0.0, 0.0)
+
 
         magnitude = self.params['wpull'] * math.log(effective_distance - self.params['Dpull'] + 1)
         nx = (feature_x - label_x) /(distance+1e-4)
@@ -120,7 +122,14 @@ class DynamicLabelOptimizer:
         distance = math.hypot(dx, dy)
              
         # 按论文公式计算
+        # 确保速度比率至少为1，避免对数域错误
+        if v_i_mag < 1e-5 and v_j_mag < 1e-5:
+            return (0.0, 0.0)  # 如果两个特征速度都接近零，不施加时间约束力
+            
         velocity_ratio = max(v_i_mag, v_j_mag) / (min(v_i_mag, v_j_mag) + 1e-6)  # 防止除零
+        
+        # 确保速度比率至少为1，避免负对数
+        velocity_ratio = max(1.0, velocity_ratio)
         
         # 计算力的大小
         magnitude = self.params['Wtime'] * math.log(velocity_ratio) * min(distance / self.params['Dfeature-collision'] - 1, 0)
@@ -217,7 +226,10 @@ class DynamicLabelOptimizer:
             new_vx = velocities[i][0] + acceleration_x * time_delta
             new_vy = velocities[i][1] + acceleration_y * time_delta
 
+            print("new_vx",velocities[i][0] * time_delta)
+            print("new_vy",velocities[i][1] * time_delta)
             # 更新位置
+
             new_x = label_positions[i][0] + velocities[i][0] * time_delta
             new_y = label_positions[i][1] + velocities[i][1] * time_delta
 
@@ -228,7 +240,7 @@ class DynamicLabelOptimizer:
             # 更新字典中的位置和速度
             new_positions[i] = (new_x, new_y)
             new_velocities[i] = (new_vx, new_vy)
-
+        # print(new_velocities)
         return new_positions, new_velocities
 
     def optimize_labels(self, initial_positions, initial_velocities, time_delta, max_iter=1000):
@@ -246,3 +258,5 @@ class DynamicLabelOptimizer:
             current_velocities = new_velocities
 
         return current_positions, current_velocities
+
+

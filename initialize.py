@@ -98,7 +98,7 @@ def initialize_features_from_gif(gif_path, frame_interval=1):
 
 # 示例调用
 if __name__ == '__main__':
-    gif_path = 'input.gif'  # 请将此路径修改为你的 GIF 文件路径
+    gif_path = 'input2.gif'  # 请将此路径修改为你的 GIF 文件路径
     features = initialize_features_from_gif(gif_path)
 
     # 输出每个要素的信息（ID、颜色、初始位置、速度、轨迹）
