@@ -54,7 +54,7 @@ class DynamicLabelOptimizer:
         
         # 计算与所有特征的排斥力
         for j in range(len(self.features)):
-            if i==j:
+            if i == j:
                 continue
             feature_x, feature_y = self.features[j].position
             r_j = self.features[j].radius
@@ -64,8 +64,8 @@ class DynamicLabelOptimizer:
             # 只有当距离小于阈值时才计算排斥力
             if d < 0:
                 magnitude = self.params['wfeature-collision'] * min(d / self.params['Dfeature-collision'] - 1, 0)
-                nx = (label_x - feature_x) /(distance+1e-4)
-                ny = (label_y - feature_y) /(distance+1e-4)
+                nx = (label_x - feature_x) /(distance+1e-6)
+                ny = (label_y - feature_y) /(distance+1e-6)
                 total_fx += magnitude * nx
                 total_fy += magnitude * ny
         
@@ -88,8 +88,8 @@ class DynamicLabelOptimizer:
 
 
         magnitude = self.params['wpull'] * math.log(effective_distance - self.params['Dpull'] + 1)
-        nx = (feature_x - label_x) /(distance+1e-4)
-        ny = (feature_y - label_y) /(distance+1e-4)
+        nx = (feature_x - label_x) /(distance+1e-6)
+        ny = (feature_y - label_y) /(distance+1e-6)
         return (magnitude * nx, magnitude * ny)
 
     def compute_friction(self, i, velocities):
