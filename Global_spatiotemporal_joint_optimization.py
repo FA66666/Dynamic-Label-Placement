@@ -9,12 +9,12 @@ import matplotlib.patches as patches
 paramsA1 = {
     'Wlabel-label': 80,
     'Wlabel-feature': 50,
-    'Worient': [1, 2, 3, 4],  # 四个象限的权重
+    'Worient': [1, 3, 2, 4],  # 四个象限的权重
     'Wdistance': 20,
     'Wout-of-axes': 320,
     'Wintersect': 1,  # leader线交叉惩罚权重
-    'Wradius': 20,
-    'Wangle': 10,
+    'Wradius': 200,
+    'Wangle': 100,
     'delta_t': 1  # 特征未来预测时间间隔
 }
 
@@ -386,7 +386,7 @@ class LabelOptimizer:
 
         return E_overlap + E_position + E_aesthetics + E_constraint
 
-    def simulated_annealing(self, initial_positions, joint_set, max_iter=1000):
+    def simulated_annealing(self, initial_positions, joint_set, max_iter=2000):
         """模拟退火优化: 仅优化 joint_set 内的标签位置"""
         current_features = list(joint_set['set'])
         current_pos = initial_positions.copy() # 包含所有标签的当前已知位置
@@ -528,93 +528,83 @@ class LabelOptimizer:
         return False
 
     def plot_label_layout(self, all_features, all_labels, optimized_joint_set_info, output_dir, joint_set_idx):
-        """绘制优化特定关节集后所有标签和特征的布局, 并标注ID, 标签用红色矩形表示"""
+        """绘制优化特定关节集后所有标签和特征的布局, 并标注ID"""
         fig, ax = plt.subplots(figsize=(12, 12))
         frame_number = optimized_joint_set_info['frame']
         optimized_indices = list(optimized_joint_set_info['set'])
-        text_offset = 1.5
+        text_offset = 5  # 增加文本偏移量
+
+        # 设置坐标轴范围
+        ax.set_xlim(0, self.max_x)
+        ax.set_ylim(0, self.max_y)
+        ax.set_aspect('equal')
+
+        # --- 绘制坐标轴 ---
+        # X轴
+        ax.plot([50, 950], [950, 950], color='black', linewidth=2)
+        # Y轴
+        ax.plot([50, 50], [50, 950], color='black', linewidth=2)
+        
+        # 绘制刻度
+        for i in range(0, 901, 100):
+            # X轴刻度
+            ax.plot([50 + i, 50 + i], [950, 940], color='black', linewidth=1)
+            ax.text(50 + i - 10, 955, str(i), fontsize=8)
+            # Y轴刻度
+            ax.plot([50, 60], [950 - i, 950 - i], color='black', linewidth=1)
+            ax.text(30, 950 - i - 5, str(i), fontsize=8)
 
         # --- 绘制所有特征点 ---
-        all_feature_pos = [(f.position[0], f.position[1]) for f in all_features]
-        ax.scatter([p[0] for p in all_feature_pos], [p[1] for p in all_feature_pos],
-                   color='gray', alpha=0.6, label='所有特征点', s=50)
-        # 添加特征索引文本
-        for i, pos in enumerate(all_feature_pos):
-            ax.text(pos[0] + text_offset, pos[1] + text_offset, f'F{i}', fontsize=8, color='dimgray')
+        for i, feature in enumerate(all_features):
+            x, y = feature.position
+            # 绘制特征点（彩色圆点）
+            ax.plot(x, y, 'o', color=feature.color, markersize=10, markeredgecolor='black')
+            # 添加特征索引文本
+            ax.text(x + text_offset, y + text_offset, f'F{i}', fontsize=8, color='black')
 
-        # --- 绘制所有标签 (红色矩形框) ---
+        # --- 绘制所有标签 ---
         current_label_positions = {}
         for i, label in enumerate(all_labels):
             if hasattr(label, 'position') and label.position:
                 current_label_positions[i] = label.position
 
         if current_label_positions:
-            # 移除之前的 scatter 调用
-            # other_label_pos = {i: pos for i, pos in current_label_positions.items() if i not in optimized_indices}
-            # opt_label_pos_dict = {i: pos for i, pos in current_label_positions.items() if i in optimized_indices}
-
-            # if other_label_pos:
-            #      ax.scatter([p[0] for p in other_label_pos.values()], [p[1] for p in other_label_pos.values()],
-            #                  color='lightgray', alpha=0.7, label='其他标签 (当前)', s=30)
-            
-            # 改为绘制矩形
             for i, pos in current_label_positions.items():
                 label_obj = all_labels[i]
-                x, y = pos # 假设 pos 是左下角坐标
+                x, y = pos
                 width = label_obj.width
                 height = label_obj.length
-                # 所有标签都用红色矩形框
-                lw = 1.5 if i in optimized_indices else 1.0 # 优化过的稍粗一点
-                rect = patches.Rectangle((x, y), width, height, linewidth=lw, edgecolor='red', facecolor='none')
+                
+                # 计算矩形坐标（中心点坐标）
+                left = x - height // 2
+                bottom = y - width // 2
+                
+                # 绘制矩形
+                lw = 2 if i in optimized_indices else 1
+                rect = patches.Rectangle((left, bottom), height, width, 
+                                       linewidth=lw, edgecolor='red', facecolor='none')
                 ax.add_patch(rect)
-                # 添加标签ID文本 (位置可能需要微调)
-                text_color = 'blue' if i in optimized_indices else 'darkgray'
+                
+                # 添加标签ID文本
+                text_color = 'blue' if i in optimized_indices else 'black'
                 font_weight = 'bold' if i in optimized_indices else 'normal'
-                ax.text(x + text_offset, y + text_offset, f'L{label_obj.id}', fontsize=9, color=text_color, weight=font_weight)
+                ax.text(x + text_offset, y + text_offset, f'L{label_obj.id}', 
+                       fontsize=9, color=text_color, weight=font_weight)
 
-
-        # --- 高亮显示当前优化的 Joint Set (只高亮特征点) ---
-        opt_feature_pos = [all_features[i].position for i in optimized_indices]
-        # valid_opt_label_pos_dict = {i: pos for i, pos in opt_label_pos_dict.items()}
-
-        if opt_feature_pos:
-            # 保持高亮特征点
-            ax.scatter([p[0] for p in opt_feature_pos], [p[1] for p in opt_feature_pos],
-                       color='red', label=f'优化的特征 (Set {joint_set_idx})', s=70, edgecolors='black')
-            # 添加优化特征的索引文本 (保持)
-            for i in optimized_indices:
-                 pos = all_features[i].position
-                 ax.text(pos[0] + text_offset, pos[1] + text_offset, f'F{i}', fontsize=9, color='red', weight='bold')
-
-        # 移除高亮标签点的 scatter
-        # if valid_opt_label_pos_dict:
-        #     ax.scatter([p[0] for p in valid_opt_label_pos_dict.values()], [p[1] for p in valid_opt_label_pos_dict.values()],
-        #                 color='blue', label=f'优化的标签 (Set {joint_set_idx})', s=50, edgecolors='black')
-        #     # 添加优化标签的ID文本 (已合并到矩形绘制部分)
-        #     # for i, pos in valid_opt_label_pos_dict.items():
-        #     #     ax.text(pos[0] + text_offset, pos[1] + text_offset, f'L{all_labels[i].id}', fontsize=9, color='blue', weight='bold')
-
-        # --- 绘制 Leader Lines (保持) ---
+        # --- 绘制 Leader Lines ---
         for i, label_pos in current_label_positions.items():
             feature_pos = all_features[i].position
-            line_color = 'black' if i in optimized_indices else 'grey'
-            line_style = '-' if i in optimized_indices else ':'
-            line_width = 1.0 if i in optimized_indices else 0.5
+            line_color = 'blue' if i in optimized_indices else 'gray'
+            line_style = '-' if i in optimized_indices else '--'
+            line_width = 1.5 if i in optimized_indices else 1.0
             ax.plot([feature_pos[0], label_pos[0]], [feature_pos[1], label_pos[1]],
                     color=line_color, linestyle=line_style, linewidth=line_width)
 
-        # --- 图表设置 (使用 ax 对象) ---
-        ax.set_title(f"优化 Joint Set {joint_set_idx} (Frame {frame_number}) 后的布局 - 含ID")
-        ax.set_xlabel("X 坐标")
-        ax.set_ylabel("Y 坐标")
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., fontsize='small') # 图例置于图外
-        ax.grid(True, linestyle='--', alpha=0.5)
-        # Determine plot limits dynamically or use fixed ones if preferred
-        ax.set_xlim(0, self.max_x)
-        ax.set_ylim(0, self.max_y)
-        ax.set_aspect('equal', adjustable='box') # 替换 plt.axis('equal')
-        fig.tight_layout(rect=[0, 0, 0.85, 1]) # 调整布局为图例留出空间
-
-        # --- 保存图像 ---
-        fig.savefig(f"{output_dir}/all_layout_after_joint_set_{joint_set_idx}_frame_{frame_number}_with_ids_rects.png", bbox_inches='tight') # 更新文件名
-        plt.close(fig) # 关闭 figure 对象
+        # --- 图表设置 ---
+        ax.set_title(f"优化 Joint Set {joint_set_idx} (Frame {frame_number}) 后的布局")
+        ax.grid(True, linestyle='--', alpha=0.3)
+        
+        # 保存图像
+        fig.savefig(f"{output_dir}/all_layout_after_joint_set_{joint_set_idx}_frame_{frame_number}.png", 
+                   bbox_inches='tight')
+        plt.close(fig)

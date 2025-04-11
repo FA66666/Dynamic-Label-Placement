@@ -2,9 +2,9 @@ import math
 
 # 参数设置（严格遵循论文附录A2）
 paramsA2 = {
-    'wlabel-collision': 50,  # 标签间碰撞力权重（取40-60中间值）
+    'wlabel-collision': 60,  # 标签间碰撞力权重（取40-60中间值）
     'Dlabel-collision': 30,  # 标签碰撞距离阈值
-    'wfeature-collision': 70,  # 标签-特征碰撞力权重（取50-100中间值）
+    'wfeature-collision': 75,  # 标签-特征碰撞力权重（取50-100中间值）
     'Dfeature-collision': 17,  # 标签-特征碰撞距离阈值
     'wpull': 25,  # 拉力权重
     'Dpull': 18,  # 拉力作用距离
@@ -26,8 +26,6 @@ class DynamicLabelOptimizer:
 
     def compute_label_label_repulsion(self, i, j, label_positions):
         """计算标签之间的排斥力（论文公式3.2.1）"""
-        # if i not in label_positions or j not in label_positions:
-        #     return (0.0, 0.0)  # 如果标签ID没有在字典中，跳过
 
         x1, y1 = label_positions[i]
         x2, y2 = label_positions[j]
@@ -42,7 +40,7 @@ class DynamicLabelOptimizer:
         magnitude = self.params['wlabel-collision'] * min(d / self.params['Dlabel-collision'] - 1, 0)
         nx = (x1 - x2) /(distance+1e-6)
         ny = (y1 - y2) /(distance+1e-6)
-        return (-magnitude * nx, -magnitude * ny)
+        return (magnitude * nx, magnitude * ny)
 
     def compute_label_feature_repulsion(self, i, label_positions):
         """计算标签与特征的排斥力（论文公式3.2.1）"""
@@ -62,7 +60,7 @@ class DynamicLabelOptimizer:
             d = distance - 0.5 * (s_i + r_j)
             
             # 只有当距离小于阈值时才计算排斥力
-            if d < 0:
+            if d < self.params['Dfeature-collision']:
                 magnitude = self.params['wfeature-collision'] * min(d / self.params['Dfeature-collision'] - 1, 0)
                 nx = (label_x - feature_x) /(distance+1e-6)
                 ny = (label_y - feature_y) /(distance+1e-6)

@@ -10,8 +10,10 @@ from label import Label
 global_params = {
     **static_params,
     **dynamic_params,
-    'max_x': 1000,
-    'max_y': 1000,
+    'max_x': 1000,  # 修改为坐标轴内最大x值
+    'max_y': 1000,  # 修改为坐标轴内最大y值
+    'min_x': 0,   # 添加最小x值
+    'min_y': 0,   # 添加最小y值
 }
 
 def create_new_frame(labels, frame_size=(1000, 1000)):
@@ -20,34 +22,27 @@ def create_new_frame(labels, frame_size=(1000, 1000)):
     frame = Image.new('RGB', frame_size, 'white')
     draw = ImageDraw.Draw(frame)
     
- # 绘制坐标轴（X轴和Y轴）
-    draw.line([(50, 950), (950, 950)], fill='black', width=2)  # X轴：0-1500
-    draw.line([(50, 50), (50, 950)], fill='black', width=2)    # Y轴：0-1500
-
-    # 设置刻度间隔为 300 单位（总范围 0-1500，共 5 个主刻度）
-    interval = 300
-
-    # 绘制刻度和标签
-    for i in range(0, 1501, interval):
-        # 计算像素位置（X轴和Y轴的转换比例：1500单位对应 900像素）
-        x_pixel = 50 + (i * (900 / 1500))  # X轴：50是起点，900像素是总长度
-        y_pixel = 50 + (i * (900 / 1500))  # Y轴：50是起点，900像素是总长度
-
-        # 确保像素位置为整数
-        x_pixel = int(round(x_pixel))
-        y_pixel = int(round(y_pixel))
-
-        # 绘制X轴刻度线和标签
-        draw.line([(x_pixel, 950), (x_pixel, 940)], fill='black', width=1)
-        draw.text((x_pixel - 15, 955), str(i), fill='black')
-
-        # 绘制Y轴刻度线和标签（注意图像坐标系的Y轴方向）
-        draw.line([(50, y_pixel), (60, y_pixel)], fill='black', width=1)
-        draw.text((20, y_pixel - 5), str(i), fill='black')
+    # 绘制坐标轴
+    # X轴
+    draw.line([(50, 950), (950, 950)], fill='black', width=2)
+    # Y轴
+    draw.line([(50, 50), (50, 950)], fill='black', width=2)
+    
+    # 绘制刻度
+    for i in range(0, 901, 100):
+        # X轴刻度
+        draw.line([(50 + i, 950), (50 + i, 940)], fill='black', width=1)
+        draw.text((50 + i - 10, 955), str(i), fill='black')
+        # Y轴刻度
+        draw.line([(50, 950 - i), (60, 950 - i)], fill='black', width=1)
+        draw.text((30, 950 - i - 5), str(i), fill='black')
     
     # 绘制标签
     for label in labels:
-        x, y = map(int, label.position)
+        # 确保标签位置在坐标轴内
+        x = max(global_params['min_x'], min(global_params['max_x'], label.position[0]))
+        y = max(global_params['min_y'], min(global_params['max_y'], label.position[1]))
+        
         width = label.width
         height = label.length
 
@@ -57,11 +52,30 @@ def create_new_frame(labels, frame_size=(1000, 1000)):
         right = x + height // 2
         bottom = y + width // 2
 
+        # 确保矩形在坐标轴内
+        left = max(global_params['min_x'], left)
+        top = max(global_params['min_y'], top)
+        right = min(global_params['max_x'], right)
+        bottom = min(global_params['max_y'], bottom)
+
         # 绘制矩形
         draw.rectangle([left, top, right, bottom], outline='red', width=2)
 
+        #  # 生成标签文本
+        # label_text = f"Label{label.id}"
+        
+        # # 获取文本大小
+        # text_bbox = draw.textbbox((0, 0), label_text)
+        # text_width = text_bbox[2] - text_bbox[0]
+        # text_height = text_bbox[3] - text_bbox[1]
+        
+        # # 绘制文本（居中）
+        # draw.text((x - text_width//2, y - text_height//2), label_text, fill='red')
+
+
         # 绘制特征点
-        feature_x, feature_y = map(int, label.feature.position)
+        feature_x = max(global_params['min_x'], min(global_params['max_x'], label.feature.position[0]))
+        feature_y = max(global_params['min_y'], min(global_params['max_y'], label.feature.position[1]))
         draw.ellipse([feature_x-5, feature_y-5, feature_x+5, feature_y+5], 
                     fill=label.feature.color, outline='black')
 
@@ -72,21 +86,20 @@ def create_new_frame(labels, frame_size=(1000, 1000)):
 
 def main():
     # 生成轨迹数据
-    red_positions, green_positions, blue_positions = generate_trajectories()
+    positions_list = generate_trajectories()
     
     # 使用轨迹数据初始化特征点
     features = initialize_features_from_data(
-        red_positions,
-        green_positions,
-        blue_positions,
+        positions_list,
         frame_interval=0.05
     )
 
     # 创建标签对象（初始位置在特征右侧）
     labels = []
     for feature in features:
-        initial_x = feature.position[0] + 50
-        initial_y = feature.position[1]
+        # 确保初始位置在坐标轴内
+        initial_x = min(global_params['max_x'], feature.position[0] + 50)
+        initial_y = max(global_params['min_y'], min(global_params['max_y'], feature.position[1]))
         label = Label(
             id=feature.id,
             feature=feature,
@@ -104,7 +117,10 @@ def main():
     # 使用第一帧坐标更新标签位置
     for label in labels:
         if label.id in first_frame_position:
-            label.position = first_frame_position[label.id]
+            # 确保位置在坐标轴内
+            x = max(global_params['min_x'], min(global_params['max_x'], first_frame_position[label.id][0]))
+            y = max(global_params['min_y'], min(global_params['max_y'], first_frame_position[label.id][1]))
+            label.position = (x, y)
     
     print("全局静态优化完成")
     current_positions = first_frame_position
@@ -129,7 +145,10 @@ def main():
         # 更新特征位置
         for feature in features:
             if frame_idx < len(feature.trajectory):
-                feature.position = feature.trajectory[frame_idx]
+                # 确保特征位置在坐标轴内
+                x = max(global_params['min_x'], min(global_params['max_x'], feature.trajectory[frame_idx][0]))
+                y = max(global_params['min_y'], min(global_params['max_y'], feature.trajectory[frame_idx][1]))
+                feature.position = (x, y)
 
         # 计算当前帧的标签位置
         if frame_idx == 0:
@@ -154,7 +173,10 @@ def main():
 
         # 更新标签位置
         for i, label_id in enumerate(current_positions):
-            labels[i].position = current_positions[label_id]
+            # 确保位置在坐标轴内
+            x = max(global_params['min_x'], min(global_params['max_x'], current_positions[label_id][0]))
+            y = max(global_params['min_y'], min(global_params['max_y'], current_positions[label_id][1]))
+            labels[i].position = (x, y)
             labels[i].velocity = velocities[label_id]
 
         # 创建新帧并添加到列表
@@ -162,7 +184,7 @@ def main():
         output_frames.append(new_frame)
 
     # 保存GIF
-    gif_output_path = 'output.gif'
+    gif_output_path = 'output1.gif'
     output_frames[0].save(
         gif_output_path,
         save_all=True,
