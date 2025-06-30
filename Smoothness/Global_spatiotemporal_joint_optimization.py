@@ -510,7 +510,7 @@ class LabelOptimizer:
         """使用空间哈希和贪心算法优化标签布局"""
         self.detect_joint_sets()
         
-        output_dir = "optimized_labels_all_steps"
+        output_dir = "../optimized_labels_all_steps"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
             
