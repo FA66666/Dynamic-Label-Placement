@@ -1,34 +1,30 @@
+# 文件: bitmap_method.py
+
 import json
 import math
 import numpy as np
 
 # --- 全局变量定义 ---
-n = 32  # 位图压缩的位数，通常为32或64
+n = 32
 label_data = {}
 anchor_x_arr, anchor_y_arr, label_size_arr = [], [], []
 screen_width, screen_height = 1000, 1000
 radius = 10
 min_height = 10
 file_path = ""
+HEURISTIC_DISTANCE_THRESHOLD = 100 # 启发式规则的激活距离阈值
 
-# --- 核心功能函数 ---
+# --- 核心及辅助函数 ---
 
 def get_angle_position(point_index, angle, r):
     """计算给定角度的标签位置（返回整数坐标）"""
     anchor_x, anchor_y = anchor_x_arr[point_index], anchor_y_arr[point_index]
     width, height = label_size_arr[point_index]
-    
-    # 标签中心到锚点的距离
     distance = r + max(width, height) / 2
-    
-    # 标签中心点的位置
     center_x = anchor_x + distance * math.cos(angle)
     center_y = anchor_y + distance * math.sin(angle)
-    
-    # 标签左上角的位置并转换为整数
     x = int(round(center_x - width / 2))
     y = int(round(center_y - height / 2))
-    
     return (x, y, width, height)
 
 def get_array_index(minx, row, width):
@@ -43,18 +39,14 @@ def get_array_index(minx, row, width):
 def deal_with_node(rec_pos):
     """处理矩形边界，确保其在画布内"""
     rec_pos = [int(round(x)) for x in rec_pos]
-    if rec_pos[0] < 0:
-        rec_pos[0] = 0
-    if rec_pos[1] < 0:
-        rec_pos[1] = 0
-    if rec_pos[0] + rec_pos[2] > screen_width:
-        rec_pos[2] = screen_width - rec_pos[0]
-    if rec_pos[1] + rec_pos[3] > screen_height:
-        rec_pos[3] = screen_height - rec_pos[1]
+    if rec_pos[0] < 0: rec_pos[0] = 0
+    if rec_pos[1] < 0: rec_pos[1] = 0
+    if rec_pos[0] + rec_pos[2] > screen_width: rec_pos[2] = screen_width - rec_pos[0]
+    if rec_pos[1] + rec_pos[3] > screen_height: rec_pos[3] = screen_height - rec_pos[1]
     return rec_pos
 
 def is_over_screen(obj):
-    """检查标签是否完全或部分在屏幕外"""
+    """检查标签是否完全在屏幕内"""
     minx, miny, width, height = obj
     maxx, maxy = minx + width, miny + height
     return not (minx >= 0 and maxx <= screen_width and miny >= 0 and maxy <= screen_height)
@@ -63,46 +55,30 @@ def lookup(bitmap, label_pos):
     """在位图中检查一个区域是否被占用"""
     minx, miny, width, height = label_pos
     full_mask = (1 << n) - 1
-    
     for row in range(miny, miny + height):
         array_index_start, bit_start_offset, array_index_end, bit_end_offset = get_array_index(minx, row, width)
-        
         if array_index_end > array_index_start:
-            start_mask = full_mask >> bit_start_offset
-            if bitmap[array_index_start] & start_mask:
-                return False
+            if bitmap[array_index_start] & (full_mask >> bit_start_offset): return False
             for arr_index in range(array_index_start + 1, array_index_end):
-                if bitmap[arr_index] & full_mask:
-                    return False
-            end_mask = full_mask ^ (full_mask >> bit_end_offset)
-            if bitmap[array_index_end] & end_mask:
-                return False
+                if bitmap[arr_index]: return False
+            if bitmap[array_index_end] & (full_mask ^ (full_mask >> bit_end_offset)): return False
         else:
-            start_mask = full_mask >> bit_start_offset
-            end_mask = full_mask ^ (full_mask >> bit_end_offset)
-            if bitmap[array_index_start] & (start_mask & end_mask):
-                return False
+            if bitmap[array_index_start] & ((full_mask >> bit_start_offset) & (full_mask ^ (full_mask >> bit_end_offset))): return False
     return True
 
 def update(bitmap, label_pos):
     """在位图中标记一个区域为已占用"""
     minx, miny, width, height = label_pos
     full_mask = (1 << n) - 1
-    
     for row in range(miny, miny + height):
         array_index_start, bit_start_offset, array_index_end, bit_end_offset = get_array_index(minx, row, width)
-        
         if array_index_end > array_index_start:
-            start_mask = full_mask >> bit_start_offset
-            bitmap[array_index_start] |= start_mask
+            bitmap[array_index_start] |= (full_mask >> bit_start_offset)
             for arr_index in range(array_index_start + 1, array_index_end):
                 bitmap[arr_index] = full_mask
-            end_mask = full_mask ^ (full_mask >> bit_end_offset)
-            bitmap[array_index_end] |= end_mask
+            bitmap[array_index_end] |= (full_mask ^ (full_mask >> bit_end_offset))
         else:
-            start_mask = full_mask >> bit_start_offset
-            end_mask = full_mask ^ (full_mask >> bit_end_offset)
-            bitmap[array_index_start] |= (start_mask & end_mask)
+            bitmap[array_index_start] |= ((full_mask >> bit_start_offset) & (full_mask ^ (full_mask >> bit_end_offset)))
     return bitmap
 
 def init_point_bitmap(bitmap, r):
@@ -113,69 +89,124 @@ def init_point_bitmap(bitmap, r):
         update(bitmap, rec_pos)
     return bitmap
 
-# 在 bitmap_method.py 文件中找到并替换这个函数
+def get_quadrant_center(point_index, quadrant, r):
+    """获取标签在指定象限的预估中心点"""
+    angle_map = {1: math.pi/4, 2: 3*math.pi/4, 3: 5*math.pi/4, 4: 7*math.pi/4}
+    angle = angle_map.get(quadrant, 0)
+    pos = get_angle_position(point_index, angle, r)
+    return (pos[0] + pos[2]/2, pos[1] + pos[3]/2)
 
-def bitmaplabeling(prev_solution={}):
-    """核心标签放置算法，已加入时间一致性处理"""
+def quadrant_to_angle_range(quadrant):
+    """将象限转换为角度范围 (弧度)"""
+    range_map = {
+        1: (0, math.pi/2), 2: (math.pi/2, math.pi),
+        3: (math.pi, 3*math.pi/2), 4: (3*math.pi/2, 2*math.pi)
+    }
+    return range_map.get(quadrant)
+
+def distance_sq(p1, p2):
+    """计算两点距离的平方"""
+    return (p1[0] - p2[0])**2 + (p1[1] - p2[1])**2
+
+def calculate_shortest_angle_diff(angle1, angle2):
+    """计算两个角度之间的最短弧度差 (0 to pi)"""
+    diff = abs(angle1 - angle2) % (2 * math.pi)
+    return min(diff, 2 * math.pi - diff)
+
+
+def bitmaplabeling(prev_solution={}, prev_anchors={}):
+    """核心标签放置算法，引入成本函数以保证运动连续性"""
     solution = {}
     bitmap = np.zeros((screen_height * screen_width + n - 1) // n, dtype=np.uint32)
     bitmap = init_point_bitmap(bitmap, radius)
     
-    angle_step = math.pi / 12  # 角度搜索精度 (15度)
+    angle_step = math.pi / 12
     point_angle_ranges = {}
-    
-    # 预处理：计算点对之间的相对位置，以启发式地限制搜索角度
+
+    # 1. 速度计算与启发式约束生成
+    velocities = {}
+    for i in range(len(anchor_x_arr)):
+        if i in prev_anchors:
+            velocities[i] = (anchor_x_arr[i] - prev_anchors[i][0], anchor_y_arr[i] - prev_anchors[i][1])
+        else:
+            velocities[i] = (0, 0)
+
     for i in range(len(anchor_x_arr)):
         for j in range(i + 1, len(anchor_x_arr)):
-            dx = anchor_x_arr[j] - anchor_x_arr[i]
-            dy = anchor_y_arr[j] - anchor_y_arr[i]
-            if dx == 0 and dy == 0: continue
+            static_dist_sq = (anchor_x_arr[j] - anchor_x_arr[i])**2 + (anchor_y_arr[j] - anchor_y_arr[i])**2
+            if static_dist_sq > HEURISTIC_DISTANCE_THRESHOLD**2:
+                continue
             
-            angle = math.atan2(dy, dx)
+            rel_vx, rel_vy = velocities[j][0] - velocities[i][0], velocities[j][1] - velocities[i][1]
+            if abs(rel_vx) < 1 and abs(rel_vy) < 1: continue
+
+            q_config1, q_config2 = None, None
+            if rel_vx >= 0 and rel_vy < 0: q_config1, q_config2 = ({'i': 1, 'j': 3}, {'i': 3, 'j': 1})
+            elif rel_vx < 0 and rel_vy < 0: q_config1, q_config2 = ({'i': 2, 'j': 4}, {'i': 4, 'j': 2})
+            elif rel_vx < 0 and rel_vy >= 0: q_config1, q_config2 = ({'i': 1, 'j': 3}, {'i': 3, 'j': 1})
+            elif rel_vx >= 0 and rel_vy >= 0: q_config1, q_config2 = ({'i': 2, 'j': 4}, {'i': 4, 'j': 2})
+            
+            if not q_config1: continue
+
+            pos_i_c1, pos_j_c1 = get_quadrant_center(i, q_config1['i'], radius), get_quadrant_center(j, q_config1['j'], radius)
+            dist_sq1 = distance_sq(pos_i_c1, pos_j_c1)
+            pos_i_c2, pos_j_c2 = get_quadrant_center(i, q_config2['i'], radius), get_quadrant_center(j, q_config2['j'], radius)
+            dist_sq2 = distance_sq(pos_i_c2, pos_j_c2)
+            best_config = q_config1 if dist_sq1 > dist_sq2 else q_config2
+            
             if i not in point_angle_ranges: point_angle_ranges[i] = []
             if j not in point_angle_ranges: point_angle_ranges[j] = []
-            point_angle_ranges[i].append(((angle + math.pi/2) % (2*math.pi), (angle + 3*math.pi/2) % (2*math.pi)))
-            point_angle_ranges[j].append(((angle - math.pi/2) % (2*math.pi), (angle + math.pi/2) % (2*math.pi)))
+            point_angle_ranges[i].append(quadrant_to_angle_range(best_config['i']))
+            point_angle_ranges[j].append(quadrant_to_angle_range(best_config['j']))
 
-    # 按顺序处理所有点
+    # 2. 放置阶段：应用成本函数
     for i in range(len(anchor_x_arr)):
-        best_position = None
-        best_angle = None
-        
-        # 1. 优先检查上一帧的位置以保持稳定
         prev_angle = prev_solution.get(i)
         if prev_angle is not None:
-            # *** 修正点 1 ***
             label_pos = get_angle_position(i, prev_angle, radius)
             if not is_over_screen(label_pos) and lookup(bitmap, label_pos):
-                best_position = label_pos
-                best_angle = prev_angle
-        
-        # 2. 如果上一帧位置不可用，再进行完整搜索
-        if best_position is None:
-            angle_ranges = point_angle_ranges.get(i, [(0, 2 * math.pi)])
-            for start_angle, end_angle in angle_ranges:
-                if best_position: break
-                
-                current_angle = start_angle
-                # 循环处理角度，包括跨越0度的情况
-                while True:
-                    if (start_angle < end_angle and current_angle >= end_angle) or \
-                       (start_angle > end_angle and (current_angle >= end_angle and current_angle < start_angle)):
-                        break
-                    
-                    # *** 修正点 2 ***
-                    label_pos = get_angle_position(i, current_angle, radius)
-                    if not is_over_screen(label_pos) and lookup(bitmap, label_pos):
-                        best_position = label_pos
-                        best_angle = current_angle
-                        break
-                    current_angle = (current_angle + angle_step) % (2 * math.pi)
+                update(bitmap, label_pos)
+                solution[i] = prev_angle
+                continue
 
-        # 如果找到可行位置，更新解和位图
-        if best_position is not None:
-            update(bitmap, best_position)
-            solution[i] = best_angle
+        # 阶段一：完整搜索，找到所有可用的位置
+        valid_positions = []
+        angle_ranges = point_angle_ranges.get(i, [(0, 2 * math.pi)])
+        # 修复后的代码
+        for start_angle, end_angle in angle_ranges:
+            # 确定搜索的总角度范围
+            total_angle_range = (end_angle - start_angle + 2 * math.pi) % (2 * math.pi)
+            if total_angle_range == 0 and start_angle != end_angle: # 处理完整的360度搜索
+                total_angle_range = 2 * math.pi
+
+            # 计算需要搜索的总步数
+            # 使用 1e-9 是为了处理浮点数精度问题，确保能覆盖到端点
+            num_steps = int(total_angle_range / angle_step + 1e-9) + 1 
+
+            for step in range(num_steps):
+                current_angle = (start_angle + step * angle_step) % (2 * math.pi)
+                
+                label_pos = get_angle_position(i, current_angle, radius)
+                if not is_over_screen(label_pos) and lookup(bitmap, label_pos):
+                    valid_positions.append((label_pos, current_angle))
+        
+        # 阶段二：成本评估，选择成本最低的位置
+        if valid_positions:
+            min_cost = float('inf')
+            best_choice = None
+            reference_angle = prev_solution.get(i, valid_positions[0][1])
+
+            for pos, angle in valid_positions:
+                cost = calculate_shortest_angle_diff(angle, reference_angle)
+                
+                if cost < min_cost:
+                    min_cost = cost
+                    best_choice = (pos, angle)
+            
+            if best_choice:
+                best_position, best_angle = best_choice
+                update(bitmap, best_position)
+                solution[i] = best_angle
             
     return solution, bitmap
 
@@ -183,7 +214,6 @@ def bitmaplabeling(prev_solution={}):
 
 def define_path(pf_count, name, size=16):
     global file_path
-    # 根据你的文件结构修改此路径
     file_path = "sample_generated.json"
 
 def read_dataset():
@@ -198,10 +228,8 @@ def parse_data():
     global anchor_x_arr, anchor_y_arr, label_size_arr, min_height
     anchor_x_arr, anchor_y_arr, label_size_arr = [], [], []
     min_height = float('inf')
-    
     if not label_data: return
     point_indices = sorted([int(k) for k in label_data.keys()])
-    
     for j in point_indices:
         p = label_data[str(j)]
         anchor_x_arr.append(int(round(p["anchor"][0])))
@@ -215,10 +243,9 @@ def do_prep():
     r = radius
     parse_data()
 
-def do_alg(prev_solution={}):
-    """主算法入口，返回最终解"""
-    # 直接返回解，位图是中间过程，外部不需要
-    solution, _ = bitmaplabeling(prev_solution)
+def do_alg(prev_solution={}, prev_anchors={}):
+    """主算法入口，现在接收上一帧的锚点位置"""
+    solution, _ = bitmaplabeling(prev_solution, prev_anchors)
     return solution
 
 def solution_to_position(point_index, angle):

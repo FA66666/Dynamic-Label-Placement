@@ -1,13 +1,12 @@
+# 文件: main.py
+
 import json
 import matplotlib.pyplot as plt
-import imageio.v2 as imageio # 使用 v2 版本的 imageio
+import imageio.v2 as imageio
 import os
 import math
 
-# 导入我们已经修改过的 bitmap_method 模块
 import bitmap_method
-
-# 在 main.py 文件中找到并替换这个函数
 
 def plot_frame(frame_data, solution, screen_width, screen_height, filename):
     """可视化单帧的标签放置结果（无引导线）"""
@@ -21,7 +20,6 @@ def plot_frame(frame_data, solution, screen_width, screen_height, filename):
     
     # 绘制成功放置的标签
     for idx, angle in solution.items():
-        # 确保索引是字符串，以匹配 frame_data['points'] 的键
         idx_str = str(idx)
         if idx_str not in frame_data['points']:
             continue
@@ -29,19 +27,11 @@ def plot_frame(frame_data, solution, screen_width, screen_height, filename):
         x, y, width, height = bitmap_method.solution_to_position(idx, angle)
         text = frame_data['points'][idx_str]['text']
         
-        # 只绘制标签文本框
         ax.text(x + width / 2, y + height / 2, text,
                 ha='center', va='center',
                 fontsize=8, color='black',
                 bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray', boxstyle='round,pad=0.3'),
                 zorder=2)
-        
-        # --- 以下绘制引导线的代码已被移除 ---
-        # anchor_x, anchor_y = frame_data['points'][idx_str]['anchor']
-        # label_center_x = x + width / 2
-        # label_center_y = y + height / 2
-        # ax.plot([anchor_x, label_center_x], [anchor_y, label_center_y], 
-        #         'k-', alpha=0.3, linewidth=0.7, zorder=1)
     
     frame_num = frame_data.get("frame", "N/A")
     total_points = len(frame_data.get('points', {}))
@@ -56,52 +46,54 @@ def plot_frame(frame_data, solution, screen_width, screen_height, filename):
 def main(screen_width=1000, screen_height=1000):
     """主执行函数，处理多帧数据并生成动画"""
     
-    # --- 1. 初始化 (只执行一次) ---
-    bitmap_method.define_path(0, "ignored")
+    # 1. 初始化
+    bitmap_method.define_path(0, "ignored") 
     bitmap_method.screen_width = screen_width
     bitmap_method.screen_height = screen_height
     
     try:
         all_frames_data = bitmap_method.read_dataset()
     except FileNotFoundError:
-        print(f"Error: Data file not found at '{bitmap_method.file_path}'. Please check the path.")
+        print(f"错误: 未在 '{bitmap_method.file_path}' 找到数据文件，请检查路径。")
         return
         
     all_frames = all_frames_data.get('frames', [all_frames_data])
 
-    # --- 2. 循环处理每一帧 ---
+    # 2. 循环处理每一帧
     frame_files = []
     prev_solution = {}
+    prev_anchors = {}
 
     for idx, frame in enumerate(all_frames):
-        print(f"Processing frame {idx}...")
+        print(f"正在处理第 {idx} 帧...")
         
-        bitmap_method.set_label_data(frame.get('points', {}))
+        current_points = frame.get('points', {})
+        bitmap_method.set_label_data(current_points)
         bitmap_method.do_prep()
         
-        # 执行算法，并传入上一帧的解以实现时间一致性
-        current_solution = bitmap_method.do_alg(prev_solution)
+        current_solution = bitmap_method.do_alg(prev_solution, prev_anchors)
         
-        # 生成并保存当前帧的可视化图片
         frame_file = f"frame_{idx:03d}.png"
         plot_frame(frame, current_solution, screen_width, screen_height, frame_file)
         frame_files.append(frame_file)
         
         prev_solution = current_solution
-        print(f"Frame {idx}: {len(current_solution)} labels placed.")
+        prev_anchors = {int(k): v['anchor'] for k, v in current_points.items()}
+        
+        print(f"第 {idx} 帧: {len(current_solution)} 个标签被放置。")
 
-    # --- 3. 生成GIF动画 ---
+    # 3. 生成GIF动画
     output_gif = 'animation_final.gif'
-    print(f"\nCreating GIF animation: {output_gif}")
+    print(f"\n正在生成GIF动画: {output_gif}")
     if frame_files:
         with imageio.get_writer(output_gif, mode='I', duration=0.1, loop=0) as writer:
             for filename in frame_files:
                 image = imageio.imread(filename)
                 writer.append_data(image)
                 os.remove(filename)
-        print("Animation created successfully!")
+        print("动画生成成功！")
     else:
-        print("No frames were processed to create a GIF.")
+        print("没有帧被处理，无法生成GIF。")
 
 if __name__ == "__main__":
     main(screen_width=1000, screen_height=1000)
