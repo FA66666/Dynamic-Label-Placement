@@ -1,4 +1,4 @@
-# 文件名: generic_kalman_filter.py
+# generic_kalman_filter.py
 """
 一个更通用、更完整的卡尔曼滤波器实现。
 它在初始化时接收所有必要的矩阵，使其能够适应不同的系统模型。
