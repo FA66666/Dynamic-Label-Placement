@@ -25,33 +25,35 @@ def evaluate_overlap(params, frames_data):
     return total_overlap
 
 def main():
-    try:
-        with open('sample_generated.json', 'r') as f:
-            full_data = json.load(f)
-        frames_data = full_data['frames']
-    except FileNotFoundError:
-        print("错误：sample_generated.json 文件未找到。请确保该文件与脚本在同一目录下。")
-        return
+    for datafile in ['sample_generated.json', 'sample10_1.json']:
+        try:
+            with open(datafile, 'r') as f:
+                full_data = json.load(f)
+            frames_data = full_data['frames']
+        except FileNotFoundError:
+            print(f"错误：{datafile} 文件未找到。请确保该文件与脚本在同一目录下。")
+            continue
 
-    params = {
-        'wlabel-collision': 1200,
-        'Dlabel-collision': 50,
-        'wfeature-collision': 1100,
-        'Dfeature-collision': 50,
-        'wpull': 30,
-        'Dpull': 40,
-        'c_friction': 0.7,
-        'Wtime': 40,
-        'CellSize': 100,
-        'D_critical': 100,
-        'R_adaptive': 100,
-        'time_step': 0.05
-    }
-    force_calculator = ForceCalculator(params)
-    simulation_engine = SimulationEngine(params, force_calculator)
-    simulation_engine.initialize_from_data(frames_data[0])
-    visualizer = Visualizer(simulation_engine, frames_data, params)
-    visualizer.run_and_save("output_kalman_generic.gif")
+        params = {
+            'wlabel-collision': 1200,
+            'Dlabel-collision': 50,
+            'wfeature-collision': 100,
+            'Dfeature-collision': 50,
+            'wpull': 30,
+            'Dpull': 40,
+            'c_friction': 0.7,
+            'Wtime': 40,
+            'CellSize': 170,
+            'D_critical': 5,
+            'R_adaptive': 10,
+            'time_step': 0.05
+        }
+        force_calculator = ForceCalculator(params)
+        simulation_engine = SimulationEngine(params, force_calculator)
+        simulation_engine.initialize_from_data(frames_data[0])
+        visualizer = Visualizer(simulation_engine, frames_data, params)
+        outname = f"output_kalman_{datafile.replace('.json','')}.gif"
+        visualizer.run_and_save(outname)
 
 if __name__ == '__main__':
     main()

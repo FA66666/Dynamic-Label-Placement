@@ -107,12 +107,51 @@ class SimulationEngine:
                 new_forces[label_id] = (fx_inherent, fy_inherent)
 
         # 3. 更新状态
+        max_step = 10  # 单步最大移动距离（像素）
         for label_id, label in self.labels.items():
             fx, fy = new_forces[label_id]
             label.ax, label.ay = fx / label.mass, fy / label.mass
             label.vx += label.ax * time_step
             label.vy += label.ay * time_step
-            label.x += label.vx * time_step
-            label.y += label.vy * time_step
+            dx = label.vx * time_step
+            dy = label.vy * time_step
+            step_norm = (dx**2 + dy**2) ** 0.5
+            if step_norm > max_step:
+                scale = max_step / (step_norm + 1e-8)
+                dx *= scale
+                dy *= scale
+            label.x += dx
+            label.y += dy
+            # 限制标签不出画布（假设画布为0~1000）
+            label.x = min(max(label.x, 0), 1000 - label.width)
+            label.y = min(max(label.y, 0), 1000 - label.height)
             # 注意：我们的卡尔曼滤波器状态x就是左上角位置，所以这里直接用label.x, label.y是正确的
             label.kf.update(np.array([[label.x], [label.y]]))
+    def _multi_ring_search(self, label, candidate_neighbors, params, max_rings=3, ring_step=20):
+        """
+        多圈试探：优先在当前位置附近的小圈内尝试微调，逐步扩大半径。
+        返回一个推荐的新位置（x, y），如果找不到则返回原位置。
+        """
+        import math
+        x0, y0 = label.x, label.y
+        for ring in range(1, max_rings+1):
+            radius = ring * ring_step
+            for angle in range(0, 360, 30):
+                rad = math.radians(angle)
+                tx = x0 + radius * math.cos(rad)
+                ty = y0 + radius * math.sin(rad)
+                # 检查是否与邻居重叠
+                overlap = False
+                for N in candidate_neighbors:
+                    if N.id == label.id:
+                        continue
+                    # 只考虑标签-标签
+                    if hasattr(N, 'width') and hasattr(N, 'height'):
+                        if not (tx + label.width < N.x or tx > N.x + N.width or ty + label.height < N.y or ty > N.y + N.height):
+                            overlap = True
+                            break
+                if not overlap:
+                    # 找到一个无重叠点
+                    return tx, ty
+        # 没找到合适点，返回原位置
+        return x0, y0
