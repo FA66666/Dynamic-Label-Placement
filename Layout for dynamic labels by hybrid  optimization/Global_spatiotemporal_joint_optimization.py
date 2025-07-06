@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import os
 import numpy as np
 import matplotlib.patches as patches
-from collections import defaultdict
 
 # 参数设置（参考论文附录A1）
 paramsA1 = {
@@ -16,73 +15,22 @@ paramsA1 = {
     'Wintersect': 1,  # leader线交叉惩罚权重
     'Wradius': 200,
     'Wangle': 100,
-    'delta_t': 1,  # 特征未来预测时间间隔
-    'grid_size': 50  # 空间哈希网格大小
+    'delta_t': 1  # 特征未来预测时间间隔
 }
 
 plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False # 解决负号显示问题
 
-class SpatialHashGrid:
-    """空间哈希网格，用于存储和查询标签位置"""
-    def __init__(self, grid_size, max_x, max_y):
-        self.grid_size = grid_size
-        self.max_x = max_x
-        self.max_y = max_y
-        self.grid = defaultdict(dict)  # 存储标签ID到位置的映射
-        self.position_history = {}  # 存储每个标签的历史位置
-        
-    def get_grid_key(self, x, y):
-        """将坐标转换为网格键"""
-        return (int(x / self.grid_size), int(y / self.grid_size))
-        
-    def get_nearby_grids(self, x, y):
-        """获取给定坐标周围9个网格的键"""
-        key = self.get_grid_key(x, y)
-        nearby = []
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                nearby.append((key[0] + dx, key[1] + dy))
-        return nearby
-        
-    def add_position(self, label_id, position):
-        """添加标签位置到网格"""
-        x, y = position
-        key = self.get_grid_key(x, y)
-        self.grid[key][label_id] = position
-        
-        # 更新位置历史
-        if label_id not in self.position_history:
-            self.position_history[label_id] = []
-        self.position_history[label_id].append(position)
-        
-    def get_nearby_positions(self, x, y):
-        """获取给定坐标附近的标签位置"""
-        nearby_positions = {}
-        for grid_key in self.get_nearby_grids(x, y):
-            nearby_positions.update(self.grid.get(grid_key, {}))
-        return nearby_positions
-        
-    def get_label_history(self, label_id):
-        """获取标签的历史位置"""
-        return self.position_history.get(label_id, [])
-        
-    def clear(self):
-        """清空网格"""
-        self.grid.clear()
-        self.position_history.clear()
-
 class LabelOptimizer:
-    """标签布局优化器，使用空间哈希和贪心算法"""
+    """标签布局优化器，包含能量计算和模拟退火算法"""
     def __init__(self, labels, features, params, max_x=1000, max_y=1000):
         self.labels = labels
         self.features = features
         self.params = params
         self.constraints = {}
         self.joint_sets = []
-        self.max_x = max_x
-        self.max_y = max_y
-        self.grid = SpatialHashGrid(params['grid_size'], max_x, max_y)
+        self.max_x = max_x  # 可视区域最大X坐标
+        self.max_y = max_y  # 可视区域最大Y坐标
 
     def calculate_angle_delta(self, theta):
         """确定标签在哪个象限"""
@@ -438,122 +386,135 @@ class LabelOptimizer:
 
         return E_overlap + E_position + E_aesthetics + E_constraint
 
-    def optimize_position_greedy(self, label_idx, feature_pos, current_positions, reference_pos=None):
-        """使用贪心算法优化单个标签的位置，考虑参考位置"""
-        best_pos = None
-        best_energy = float('inf')
-        
-        # 生成候选位置
-        candidate_positions = []
-        
-        # 如果有参考位置，优先考虑参考位置附近的区域
-        if reference_pos:
-            # 在参考位置周围生成候选点
-            for angle in np.linspace(0, 2*np.pi, 8):
-                radius = self.features[label_idx].radius + max(self.labels[label_idx].length, self.labels[label_idx].width)/2 + 5
-                x = reference_pos[0] + radius * np.cos(angle)
-                y = reference_pos[1] + radius * np.sin(angle)
-                candidate_positions.append((x, y))
-        else:
-            # 在特征点周围生成候选点
-            for angle in np.linspace(0, 2*np.pi, 8):
-                radius = self.features[label_idx].radius + max(self.labels[label_idx].length, self.labels[label_idx].width)/2 + 5
-                x = feature_pos[0] + radius * np.cos(angle)
-                y = feature_pos[1] + radius * np.sin(angle)
-                candidate_positions.append((x, y))
-            
-        # 评估每个候选位置
-        for pos in candidate_positions:
-            # 检查是否超出边界
-            if pos[0] < 0 or pos[0] > self.max_x or pos[1] < 0 or pos[1] > self.max_y:
-                continue
-                
-            # 计算能量
-            temp_positions = current_positions.copy()
-            temp_positions[label_idx] = pos
-            
-            # 使用空间哈希快速查找附近的标签
-            nearby_positions = self.grid.get_nearby_positions(pos[0], pos[1])
-            
-            # 计算重叠能量
-            overlap_energy = 0
-            for other_id, other_pos in nearby_positions.items():
-                if other_id != label_idx:
-                    overlap = self.calculate_label_label_overlap(label_idx, other_id, temp_positions)
-                    overlap_energy += self.params['Wlabel-label'] * overlap
-                    
-            # 计算位置能量
-            dx = pos[0] - feature_pos[0]
-            dy = pos[1] - feature_pos[1]
-            r, theta = self.cartesian_to_polar((dx, dy))
-            quadrant = self.get_quadrant(theta)
-            position_energy = self.params['Worient'][quadrant-1] * self.calculate_angle_delta(theta)
-            position_energy += self.params['Wdistance'] * r
-            
-            # 如果存在参考位置，添加参考位置的能量项
-            if reference_pos:
-                ref_dx = pos[0] - reference_pos[0]
-                ref_dy = pos[1] - reference_pos[1]
-                ref_distance = math.hypot(ref_dx, ref_dy)
-                position_energy += self.params['Wdistance'] * ref_distance * 0.5  # 参考位置权重
-            
-            # 计算总能量
-            total_energy = overlap_energy + position_energy
-            
-            if total_energy < best_energy:
-                best_energy = total_energy
-                best_pos = pos
-                
+    def simulated_annealing(self, initial_positions, joint_set, max_iter=2000):
+        """模拟退火优化: 仅优化 joint_set 内的标签位置"""
+        current_features = list(joint_set['set'])
+        current_pos = initial_positions.copy() # 包含所有标签的当前已知位置
+        best_pos = current_pos.copy()
+        current_energy = self.calculate_static_energy(current_pos, joint_set)
+        best_energy = current_energy
+        temp = 1000.0
+
+        for _ in range(max_iter):
+            # 生成新解: 仅扰动当前 joint_set 中的标签
+            new_pos = current_pos.copy() # 先复制当前所有位置
+            for feat_idx in current_features: # 只对 joint set 中的点进行扰动
+                x, y = current_pos[feat_idx]
+                new_pos[feat_idx] = (
+                    x + random.uniform(-temp / 100, temp / 100),
+                    y + random.uniform(-temp / 100, temp / 100)
+                )
+
+            new_energy = self.calculate_static_energy(new_pos, joint_set)
+            delta = new_energy - current_energy
+
+            # Metropolis 接受准则
+            if delta < 0 or math.exp(-delta / temp) > random.random():
+                current_pos = new_pos
+                current_energy = new_energy
+                if new_energy < best_energy:
+                    best_pos = new_pos # 更新最优解
+                    best_energy = new_energy
+
+            temp *= 0.99  # 降温
+
+        # 返回的 best_pos 包含所有标签的位置，但只有 joint_set 内的标签经过了优化
         return best_pos
 
     def optimize(self):
-        """使用空间哈希和贪心算法优化标签布局"""
+        """全局静态优化流程：检测joint sets -> 依次优化 -> (可选全局优化) -> 返回最终位置"""
         self.detect_joint_sets()
-        
-        output_dir = "../optimized_labels_all_steps"
+        # print(self.joint_sets)
+
+        output_dir = "optimized_labels_all_steps"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
-            
-        # 初始化标签位置
-        current_positions = {}
-        
-        # 按复杂度顺序处理每个joint set
+
+        # 初始化标签位置（如果尚未设置）
+        for label in self.labels:
+            if not hasattr(label, 'position') or label.position is None:
+                label.position = None # 初始设为 None
+
+        first_frame_positions = {}  # 存储第一帧优化后的位置
+        all_joint_set_positions = []
+
+        # 1. 按复杂度顺序，依次优化每个 joint set
         for idx, joint_set in enumerate(self.joint_sets):
             current_features = list(joint_set['set'])
             frame_number = joint_set['frame']
-            
-            # 对当前joint set中的每个标签进行优化
-            for feat_idx in current_features:
-                feature_pos = self.features[feat_idx].position
-                
-                # 获取标签的历史位置作为参考
-                history_positions = self.grid.get_label_history(feat_idx)
-                reference_pos = history_positions[-1] if history_positions else None
-                
-                # 使用贪心算法优化位置
-                optimized_pos = self.optimize_position_greedy(feat_idx, feature_pos, current_positions, reference_pos)
-                
-                if optimized_pos:
-                    current_positions[feat_idx] = optimized_pos
-                    self.labels[feat_idx].position = optimized_pos
-                    self.grid.add_position(feat_idx, optimized_pos)
-                    
-                    # 更新约束
-                    dx = optimized_pos[0] - feature_pos[0]
-                    dy = optimized_pos[1] - feature_pos[1]
-                    r, theta = self.cartesian_to_polar((dx, dy))
-                    self.constraints[feat_idx] = (r, theta)
-            
-            # 存储当前joint set的优化结果
-            joint_set['position'] = {f_idx: current_positions[f_idx] for f_idx in current_features}
-            
+
+            # 准备当前 joint set 的初始位置用于模拟退火
+            initial_positions_for_sa = {}
+            for feature_idx in current_features:
+                if self.labels[feature_idx].position: # 如果已有位置（来自之前的优化），则使用
+                     initial_positions_for_sa[feature_idx] = self.labels[feature_idx].position
+                else: # 否则，生成随机初始位置
+                     feature = self.features[feature_idx]
+                     angle = random.uniform(0, 2 * math.pi)
+                     label_dim = max(self.labels[feature_idx].length, self.labels[feature_idx].width)
+                     radius = feature.radius + label_dim / 2 + 5 # 保证在特征点外围
+                     x = feature.position[0] + radius * math.cos(angle)
+                     y = feature.position[1] + radius * math.sin(angle)
+                     initial_positions_for_sa[feature_idx] = (x, y)
+                     self.labels[feature_idx].position = (x,y) # 同时更新标签对象的初始位置
+
+            # 对当前 joint set 进行模拟退火优化
+            optimized_positions = self.simulated_annealing(initial_positions_for_sa, joint_set)
+
+            # 更新优化后的标签位置和约束条件
+            for idx_feat in current_features:
+                pos = optimized_positions[idx_feat]
+                self.labels[idx_feat].position = pos # 更新全局标签状态
+
+                # 计算并存储极坐标约束，供后续 joint set 使用
+                dx = pos[0] - self.features[idx_feat].position[0]
+                dy = pos[1] - self.features[idx_feat].position[1]
+                r, theta = self.cartesian_to_polar((dx, dy))
+                self.constraints[idx_feat] = (r, theta)
+
+            # 存储当前 joint set 的优化结果
+            joint_set['position'] = {f_idx: optimized_positions[f_idx] for f_idx in current_features}
+
             # 绘制当前步骤的结果图
             self.plot_label_layout(self.features, self.labels, joint_set, output_dir, idx)
-            
-        # 准备返回结果
+
+            # 记录第一帧和所有 joint set 的位置信息
+            if frame_number == 0:
+                for idx_feat in current_features:
+                    first_frame_positions[idx_feat] = optimized_positions[idx_feat]
+
+            all_joint_set_positions.append({
+                'frame': frame_number,
+                'positions': {idx_feat: optimized_positions[idx_feat] for idx_feat in current_features}
+            })
+        # print(all_joint_set_positions)
+
+        # 2. (可选) 对所有标签进行一次最终的全局优化
+        # 这一步可以用于进一步微调，但主要结果来自按 joint set 顺序优化的过程
+        combined_positions = {}
+        for idx, label in enumerate(self.labels):
+            if label.position:
+                 combined_positions[idx] = label.position
+            else: # 如果有标签从未出现在任何 joint set 中（理论上不应发生）
+                 feature = self.features[idx]
+                 angle = random.uniform(0, 2 * math.pi)
+                 label_dim = max(label.length, label.width)
+                 radius = feature.radius + label_dim / 2 + 5
+                 x = feature.position[0] + radius * math.cos(angle)
+                 y = feature.position[1] + radius * math.sin(angle)
+                 combined_positions[idx] = (x,y)
+                 self.labels[idx].position = (x,y) # 确保所有标签都有位置
+
+        full_set = {'set': list(range(len(self.labels)))}
+        final_positions_indexed = self.simulated_annealing(combined_positions, full_set)
+
+        # 更新最终位置到标签对象
+        for idx, pos in final_positions_indexed.items():
+             self.labels[idx].position = pos
+
+        # 准备返回给 main.py 的结果 (使用标签 ID 作为 key)
         final_id_positions = {lbl.id: lbl.position for lbl in self.labels if lbl.position}
-        all_joint_set_positions = [{'frame': js['frame'], 'positions': js['position']} for js in self.joint_sets]
-        
+
         return final_id_positions, all_joint_set_positions
 
     def check_feature_in_multiple_joint_sets(self, feature_idx):
@@ -595,11 +556,7 @@ class LabelOptimizer:
 
         # --- 绘制所有特征点 ---
         for i, feature in enumerate(all_features):
-            # 使用joint set所在帧的特征点位置
-            if i in optimized_joint_set_info.get('feature_positions', {}):
-                x, y = optimized_joint_set_info['feature_positions'][i]
-            else:
-                x, y = feature.position
+            x, y = feature.position
             # 绘制特征点（彩色圆点）
             ax.plot(x, y, 'o', color=feature.color, markersize=10, markeredgecolor='black')
             # 添加特征索引文本
@@ -607,13 +564,9 @@ class LabelOptimizer:
 
         # --- 绘制所有标签 ---
         current_label_positions = {}
-        # 使用joint set优化后的标签位置
-        if 'position' in optimized_joint_set_info:
-            current_label_positions = optimized_joint_set_info['position']
-        else:
-            for i, label in enumerate(all_labels):
-                if hasattr(label, 'position') and label.position:
-                    current_label_positions[i] = label.position
+        for i, label in enumerate(all_labels):
+            if hasattr(label, 'position') and label.position:
+                current_label_positions[i] = label.position
 
         if current_label_positions:
             for i, pos in current_label_positions.items():
@@ -640,11 +593,7 @@ class LabelOptimizer:
 
         # --- 绘制 Leader Lines ---
         for i, label_pos in current_label_positions.items():
-            # 使用joint set所在帧的特征点位置
-            if i in optimized_joint_set_info.get('feature_positions', {}):
-                feature_pos = optimized_joint_set_info['feature_positions'][i]
-            else:
-                feature_pos = all_features[i].position
+            feature_pos = all_features[i].position
             line_color = 'blue' if i in optimized_indices else 'gray'
             line_style = '-' if i in optimized_indices else '--'
             line_width = 1.5 if i in optimized_indices else 1.0
@@ -659,138 +608,3 @@ class LabelOptimizer:
         fig.savefig(f"{output_dir}/all_layout_after_joint_set_{joint_set_idx}_frame_{frame_number}.png", 
                    bbox_inches='tight')
         plt.close(fig)
-
-    def initialize_first_frame_positions(self):
-        """确定初始帧的标签位置"""
-        first_frame_positions = {}
-        
-        # 获取第一帧的特征位置
-        first_frame_features = {}
-        for i, feature in enumerate(self.features):
-            if feature.trajectory:
-                first_frame_features[i] = feature.trajectory[0]
-        
-        # 按特征密度排序（从稀疏到密集）
-        feature_density = {}
-        for i, pos in first_frame_features.items():
-            # 计算每个特征周围的密度
-            density = 0
-            for j, other_pos in first_frame_features.items():
-                if i != j:
-                    distance = math.hypot(pos[0] - other_pos[0], pos[1] - other_pos[1])
-                    if distance < self.params['interaction_distance'] * 2:
-                        density += 1
-            feature_density[i] = density
-        
-        # 按密度排序（从稀疏到密集）
-        sorted_features = sorted(feature_density.items(), key=lambda x: x[1])
-        
-        # 为每个特征确定初始位置
-        for feature_idx, _ in sorted_features:
-            feature_pos = first_frame_features[feature_idx]
-            best_position = None
-            min_score = float('inf')
-            
-            # 在特征周围生成候选位置
-            for angle in np.arange(0, 2 * math.pi, math.pi/4):  # 8个方向
-                for distance in np.arange(0, 11, 1):  # 距离从0到10
-                    # 计算候选位置
-                    x = feature_pos[0] + distance * math.cos(angle)
-                    y = feature_pos[1] + distance * math.sin(angle)
-                    
-                    # 确保位置在边界内
-                    x = max(0, min(self.max_x, x))
-                    y = max(0, min(self.max_y, y))
-                    
-                    # 计算与已放置标签的重叠
-                    total_overlap = 0
-                    for placed_idx, placed_pos in first_frame_positions.items():
-                        overlap = self.calculate_label_label_overlap(feature_idx, placed_idx, 
-                                                                   {**first_frame_positions, feature_idx: (x, y)})
-                        total_overlap += overlap
-                    
-                    # 计算引导线长度
-                    leader_length = math.hypot(x - feature_pos[0], y - feature_pos[1])
-                    
-                    # 计算综合得分
-                    score = (
-                        self.params['Wlabel-label'] * total_overlap +
-                        self.params['Wdistance'] * leader_length
-                    )
-                    
-                    # 更新最佳位置
-                    if score < min_score:
-                        min_score = score
-                        best_position = (x, y)
-            
-            # 更新位置
-            if best_position:
-                first_frame_positions[feature_idx] = best_position
-                self.labels[feature_idx].position = best_position
-        
-        return first_frame_positions
-
-    def greedy_optimize(self, initial_positions, joint_set):
-        """使用贪心算法优化标签位置，考虑重叠和引导线长度"""
-        current_features = list(joint_set['set'])
-        current_positions = initial_positions.copy()
-        feature_positions = joint_set.get('feature_positions', {})
-
-        # 对每个标签进行贪心优化
-        for feat_idx in current_features:
-            best_position = None
-            min_score = float('inf')
-            
-            # 获取特征位置
-            if feat_idx in feature_positions:
-                feature_pos = feature_positions[feat_idx]
-            else:
-                feature_pos = self.features[feat_idx].position
-
-            # 在特征周围生成候选位置
-            for angle in np.arange(0, 2 * math.pi, math.pi/4):  # 8个方向
-                for distance in np.arange(0, 11, 1):  # 距离从0到10
-                    # 计算候选位置
-                    x = feature_pos[0] + distance * math.cos(angle)
-                    y = feature_pos[1] + distance * math.sin(angle)
-                    
-                    # 确保位置在边界内
-                    x = max(0, min(self.max_x, x))
-                    y = max(0, min(self.max_y, y))
-                    
-                    # 计算重叠面积
-                    temp_positions = current_positions.copy()
-                    temp_positions[feat_idx] = (x, y)
-                    
-                    total_overlap = 0
-                    # 计算与特征的重叠
-                    for other_feat in range(len(self.features)):
-                        if other_feat != feat_idx:
-                            overlap = self.calculate_label_feature_overlap(feat_idx, other_feat, temp_positions)
-                            total_overlap += overlap
-                    
-                    # 计算与其他标签的重叠
-                    for other_feat in current_features:
-                        if other_feat != feat_idx:
-                            overlap = self.calculate_label_label_overlap(feat_idx, other_feat, temp_positions)
-                            total_overlap += overlap
-                    
-                    # 计算引导线长度
-                    leader_length = math.hypot(x - feature_pos[0], y - feature_pos[1])
-                    
-                    # 计算综合得分
-                    score = (
-                        self.params['Wlabel-label'] * total_overlap +
-                        self.params['Wdistance'] * leader_length
-                    )
-                    
-                    # 更新最佳位置
-                    if score < min_score:
-                        min_score = score
-                        best_position = (x, y)
-
-            # 更新位置
-            if best_position:
-                current_positions[feat_idx] = best_position
-
-        return current_positions
