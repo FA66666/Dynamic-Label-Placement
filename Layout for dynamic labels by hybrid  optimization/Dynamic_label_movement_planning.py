@@ -4,7 +4,7 @@ import math
 paramsA2 = {
     'wlabel-collision': 60,  # 标签间碰撞力权重（取40-60中间值）
     'Dlabel-collision': 30,  # 标签碰撞距离阈值
-    'wfeature-collision': 75,  # 标签-特征碰撞力权重（取50-100中间值）
+    'wfeature-collision': 90,  # 标签-特征碰撞力权重（取50-100中间值）
     'Dfeature-collision': 17,  # 标签-特征碰撞距离阈值
     'wpull': 25,  # 拉力权重
     'Dpull': 18,  # 拉力作用距离

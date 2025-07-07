@@ -1,7 +1,7 @@
-# 文件名: simulation.py 
 from point import Point
 from label import Label
 import numpy as np
+import random
 
 class SimulationEngine:
     def __init__(self, params, force_calculator):
@@ -11,6 +11,7 @@ class SimulationEngine:
         self.labels = {}
 
     def initialize_from_data(self, initial_frame_data):
+        """从初始帧数据创建特征点和标签对象"""
         time_step = self.params['time_step']
         for pid, data in initial_frame_data['points'].items():
             point_id = int(pid)
@@ -26,60 +27,54 @@ class SimulationEngine:
                 self.features[point_id].update_position(data['anchor'][0], data['anchor'][1], time_step)
 
     def _build_grid(self):
+        """构建空间网格用于邻域查找优化"""
         grid = {}
         cell_size = self.params['CellSize']
         all_objects = list(self.labels.values()) + list(self.features.values())
         for p in all_objects:
-            x = p.center_x if isinstance(p, Label) else p.x
+            x = p.center_x if isinstance(p, Label) else p.x  # 标签用中心点，特征点用位置
             y = p.center_y if isinstance(p, Label) else p.y
-            gx, gy = int(x // cell_size), int(y // cell_size)
+            gx, gy = int(x // cell_size), int(y // cell_size)  # 计算网格坐标
             cell_key = (gx, gy)
             if cell_key not in grid: grid[cell_key] = []
             grid[cell_key].append(p)
         return grid
 
     def _check_predicted_collision(self, label, pred_label_pos, neighbor, pred_neighbor_pos):
-        """
-        它接收的 pred_..._pos 是标签的左上角坐标或锚点的中心点坐标。
-        """
-        # 计算主标签的预测边界 (左上角 -> 边界)
+        """检查预测位置是否会发生碰撞（AABB检测）"""
         lx_min, ly_min = pred_label_pos[0], pred_label_pos[1]
         lx_max = lx_min + label.width
         ly_max = ly_min + label.height
 
-        # 计算邻居的预测边界
         if isinstance(neighbor, Label):
-            # 邻居是标签 (左上角 -> 边界)
             nx_min, ny_min = pred_neighbor_pos[0], pred_neighbor_pos[1]
             nx_max = nx_min + neighbor.width
             ny_max = ny_min + neighbor.height
-        else: # 邻居是特征点 (中心点 -> 边界)
+        else:
             nx_min = pred_neighbor_pos[0] - neighbor.radius
             nx_max = pred_neighbor_pos[0] + neighbor.radius
             ny_min = pred_neighbor_pos[1] - neighbor.radius
             ny_max = pred_neighbor_pos[1] + neighbor.radius
             
-        # AABB 碰撞检测
         return not (lx_max < nx_min or lx_min > nx_max or ly_max < ny_min or ly_min > ny_max)
 
     def step(self, time_step):
+        """执行一个仿真步骤：预测->决策->更新"""
         grid = self._build_grid()
         new_forces = {}
 
-        # 1. 预测阶段
         predicted_positions = {}
         all_objects = list(self.labels.values()) + list(self.features.values())
         for obj in all_objects:
-            u = np.array([[obj.ax], [obj.ay]]) if isinstance(obj, Label) else 0
+            u = np.array([[obj.ax], [obj.ay]]) if isinstance(obj, Label) else 0  # 标签有加速度控制输入
             predicted_state = obj.kf.predict(u=u)
             predicted_positions[obj.id] = (predicted_state[0,0], predicted_state[2,0])
 
-        # 2. 决策与行动阶段
         for label_id, label in self.labels.items():
             apply_force = False
             lx, ly = int(label.center_x // self.params['CellSize']), int(label.center_y // self.params['CellSize'])
             candidate_neighbors = []
-            for dx in [-1, 0, 1]:
+            for dx in [-1, 0, 1]:  # 搜索3x3网格区域
                 for dy in [-1, 0, 1]:
                     cell_key = (lx + dx, ly + dy)
                     if cell_key in grid:
@@ -90,9 +85,8 @@ class SimulationEngine:
                 if neighbor.id == label.id: continue
                 pred_neighbor_pos = predicted_positions[neighbor.id]
                 
-                # 
                 if self._check_predicted_collision(label, pred_label_pos, neighbor, pred_neighbor_pos):
-                    apply_force = True
+                    apply_force = True  # 预测到碰撞，需要施加力
                     break
             
             if apply_force:
@@ -101,52 +95,26 @@ class SimulationEngine:
                 total_fx, total_fy = self.force_calculator.compute_total_force_for_label(
                     label, neighbor_labels, neighbor_features
                 )
-                # 应用方向约束（仅在预测碰撞时生效）
                 direction = self.params.get('force_direction', 'xy')
-                if direction == 'x+':
-                    total_fy = 0  # 只在x方向有力
-                    total_fx = max(total_fx, 0)  # 只保留正方向力，负方向清零
-                elif direction == 'x-':
-                    total_fy = 0  # 只在x方向有力
-                    total_fx = min(total_fx, 0)  # 只保留负方向力，正方向清零
-                elif direction == 'y+':
-                    total_fx = 0  # 只在y方向有力
-                    total_fy = max(total_fy, 0)  # 只保留正方向力，负方向清零
-                elif direction == 'y-':
-                    total_fx = 0  # 只在y方向有力
-                    total_fy = min(total_fy, 0)  # 只保留负方向力，正方向清零
-                elif direction == 'x+y':
-                    total_fx = max(total_fx, 0)  # x只保留正方向力
-                    # y方向保持原有力
-                elif direction == 'x-y':
-                    total_fx = min(total_fx, 0)  # x只保留负方向力
-                    # y方向保持原有力
-                elif direction == 'xy+':
-                    # x方向保持原有力
-                    total_fy = max(total_fy, 0)  # y只保留正方向力
-                elif direction == 'xy-':
-                    # x方向保持原有力
-                    total_fy = min(total_fy, 0)  # y只保留负方向力
-                elif direction == 'x+y+':
-                    total_fx = max(total_fx, 0)  # x只保留正方向力
-                    total_fy = max(total_fy, 0)  # y只保留正方向力
-                elif direction == 'x+y-':
-                    total_fx = max(total_fx, 0)  # x只保留正方向力
-                    total_fy = min(total_fy, 0)  # y只保留负方向力
-                elif direction == 'x-y+':
-                    total_fx = min(total_fx, 0)  # x只保留负方向力
-                    total_fy = max(total_fy, 0)  # y只保留正方向力
-                elif direction == 'x-y-':
-                    total_fx = min(total_fx, 0)  # x只保留负方向力
-                    total_fy = min(total_fy, 0)  # y只保留负方向力
-                # direction == 'xy' 时保持原有的xy方向力
+                if direction != 'xy':  # 力方向投影约束
+                    fx_abs = abs(total_fx)
+                    fy_abs = abs(total_fy)
+                    
+                    if fx_abs > fy_abs:
+                        total_fy = 0  # 保留x方向力
+                    elif fy_abs > fx_abs:
+                        total_fx = 0  # 保留y方向力
+                    else:
+                        if random.choice([True, False]):  # 随机选择保留方向
+                            total_fy = 0
+                        else:
+                            total_fx = 0
                 new_forces[label_id] = (total_fx, total_fy)
             else:
                 fx_inherent, fy_inherent = self.force_calculator._compute_inherent_forces(label)
                 new_forces[label_id] = (fx_inherent, fy_inherent)
 
-        # 3. 更新状态
-        max_step = 10  # 单步最大移动距离（像素）
+        max_step = 10  # 限制单步最大移动距离
         for label_id, label in self.labels.items():
             fx, fy = new_forces[label_id]
             label.ax, label.ay = fx / label.mass, fy / label.mass
@@ -155,42 +123,12 @@ class SimulationEngine:
             dx = label.vx * time_step
             dy = label.vy * time_step
             step_norm = (dx**2 + dy**2) ** 0.5
-            if step_norm > max_step:
+            if step_norm > max_step:  # 防止移动过快导致不稳定
                 scale = max_step / (step_norm + 1e-8)
                 dx *= scale
                 dy *= scale
             label.x += dx
             label.y += dy
-            # 限制标签不出画布（假设画布为0~1000）
-            label.x = min(max(label.x, 0), 1000 - label.width)
+            label.x = min(max(label.x, 0), 1000 - label.width)  # 边界约束
             label.y = min(max(label.y, 0), 1000 - label.height)
-            # 注意：我们的卡尔曼滤波器状态x就是左上角位置，所以这里直接用label.x, label.y是正确的
-            label.kf.update(np.array([[label.x], [label.y]]))
-    def _multi_ring_search(self, label, candidate_neighbors, params, max_rings=3, ring_step=20):
-        """
-        多圈试探：优先在当前位置附近的小圈内尝试微调，逐步扩大半径。
-        返回一个推荐的新位置（x, y），如果找不到则返回原位置。
-        """
-        import math
-        x0, y0 = label.x, label.y
-        for ring in range(1, max_rings+1):
-            radius = ring * ring_step
-            for angle in range(0, 360, 30):
-                rad = math.radians(angle)
-                tx = x0 + radius * math.cos(rad)
-                ty = y0 + radius * math.sin(rad)
-                # 检查是否与邻居重叠
-                overlap = False
-                for N in candidate_neighbors:
-                    if N.id == label.id:
-                        continue
-                    # 只考虑标签-标签
-                    if hasattr(N, 'width') and hasattr(N, 'height'):
-                        if not (tx + label.width < N.x or tx > N.x + N.width or ty + label.height < N.y or ty > N.y + N.height):
-                            overlap = True
-                            break
-                if not overlap:
-                    # 找到一个无重叠点
-                    return tx, ty
-        # 没找到合适点，返回原位置
-        return x0, y0
+            label.kf.update(np.array([[label.x], [label.y]]))  # 更新卡尔曼滤波器

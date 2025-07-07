@@ -189,7 +189,7 @@ def main():
         gif_output_path,
         save_all=True,
         append_images=output_frames[1:],
-        duration=100,
+        duration=50,
         loop=0
     )
     print(f"已保存GIF到 {gif_output_path}")
