@@ -37,7 +37,7 @@ def main():
         params = {
             'wlabel-collision': 1200,
             'Dlabel-collision': 50,
-            'wfeature-collision': 100,
+            'wfeature-collision': 1000,
             'Dfeature-collision': 50,
             'wpull': 30,
             'Dpull': 40,
@@ -46,7 +46,8 @@ def main():
             'CellSize': 170,
             'D_critical': 5,
             'R_adaptive': 10,
-            'time_step': 0.05
+            'time_step': 0.05,
+            'force_direction': 'x-y+'  # 'x+', 'x-', 'y+', 'y-', 'x+y', 'x-y', 'xy+', 'xy-', 'x+y+', 'x+y-', 'x-y+', 'x-y-', 'xy' - 控制碰撞力的方向约束
         }
         force_calculator = ForceCalculator(params)
         simulation_engine = SimulationEngine(params, force_calculator)

@@ -90,7 +90,7 @@ class SimulationEngine:
                 if neighbor.id == label.id: continue
                 pred_neighbor_pos = predicted_positions[neighbor.id]
                 
-                # 直接使用修正后的函数，不再需要在这里做坐标转换
+                # 
                 if self._check_predicted_collision(label, pred_label_pos, neighbor, pred_neighbor_pos):
                     apply_force = True
                     break
@@ -101,6 +101,45 @@ class SimulationEngine:
                 total_fx, total_fy = self.force_calculator.compute_total_force_for_label(
                     label, neighbor_labels, neighbor_features
                 )
+                # 应用方向约束（仅在预测碰撞时生效）
+                direction = self.params.get('force_direction', 'xy')
+                if direction == 'x+':
+                    total_fy = 0  # 只在x方向有力
+                    total_fx = abs(total_fx)  # 强制为正方向
+                elif direction == 'x-':
+                    total_fy = 0  # 只在x方向有力
+                    total_fx = -abs(total_fx)  # 强制为负方向
+                elif direction == 'y+':
+                    total_fx = 0  # 只在y方向有力
+                    total_fy = abs(total_fy)  # 强制为正方向
+                elif direction == 'y-':
+                    total_fx = 0  # 只在y方向有力
+                    total_fy = -abs(total_fy)  # 强制为负方向
+                elif direction == 'x+y':
+                    total_fx = abs(total_fx)  # x正方向
+                    # y方向保持原有力
+                elif direction == 'x-y':
+                    total_fx = -abs(total_fx)  # x负方向
+                    # y方向保持原有力
+                elif direction == 'xy+':
+                    # x方向保持原有力
+                    total_fy = abs(total_fy)  # y正方向
+                elif direction == 'xy-':
+                    # x方向保持原有力
+                    total_fy = -abs(total_fy)  # y负方向
+                elif direction == 'x+y+':
+                    total_fx = abs(total_fx)  # x正方向
+                    total_fy = abs(total_fy)  # y正方向
+                elif direction == 'x+y-':
+                    total_fx = abs(total_fx)  # x正方向
+                    total_fy = -abs(total_fy)  # y负方向
+                elif direction == 'x-y+':
+                    total_fx = -abs(total_fx)  # x负方向
+                    total_fy = abs(total_fy)  # y正方向
+                elif direction == 'x-y-':
+                    total_fx = -abs(total_fx)  # x负方向
+                    total_fy = -abs(total_fy)  # y负方向
+                # direction == 'xy' 时保持原有的xy方向力
                 new_forces[label_id] = (total_fx, total_fy)
             else:
                 fx_inherent, fy_inherent = self.force_calculator._compute_inherent_forces(label)
