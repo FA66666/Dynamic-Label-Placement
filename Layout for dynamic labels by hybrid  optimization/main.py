@@ -2,9 +2,10 @@ import random
 from PIL import Image, ImageSequence, ImageDraw
 from Dynamic_label_movement_planning import DynamicLabelOptimizer, paramsA2 as dynamic_params
 from Global_spatiotemporal_joint_optimization import LabelOptimizer, paramsA1 as static_params, paramsA1
-from generate_data import generate_trajectories
+from load_json_data import load_trajectories_from_json, get_label_info_from_json
 from initialize import initialize_features_from_data
 from label import Label
+from quality_evaluation import evaluate_label_layout_quality
 
 # 参数设置（合并静态和动态参数）
 global_params = {
@@ -85,8 +86,17 @@ def create_new_frame(labels, frame_size=(1000, 1000)):
     return frame
 
 def main():
-    # 生成轨迹数据
-    positions_list = generate_trajectories()
+    # 指定JSON数据文件路径 - 可以选择不同的数据文件
+    json_file_path = 'sample_generated.json' 
+    
+    
+    # 从JSON文件加载轨迹数据
+    positions_list = load_trajectories_from_json(json_file_path)
+
+    
+    # 从JSON文件获取标签信息
+    label_info_list = get_label_info_from_json(json_file_path)
+
     
     # 使用轨迹数据初始化特征点
     features = initialize_features_from_data(
@@ -94,21 +104,30 @@ def main():
         frame_interval=0.05
     )
 
-    # 创建标签对象（初始位置在特征右侧）
+    # 创建标签对象（使用JSON中的标签信息）
     labels = []
-    for feature in features:
+    for i, feature in enumerate(features):
+        # 获取对应的标签信息
+        
+        label_info = label_info_list[i]
+        label_length = label_info['length']
+        label_width = label_info['width']
+        label_text = label_info['text']
+        
         # 确保初始位置在坐标轴内
         initial_x = min(global_params['max_x'], feature.position[0] + 50)
         initial_y = max(global_params['min_y'], min(global_params['max_y'], feature.position[1]))
+        
         label = Label(
             id=feature.id,
             feature=feature,
             position=(initial_x, initial_y),
-            length=40,
-            width=16,
+            length=label_length,
+            width=label_width,
             velocity=(0, 0)
         )
         labels.append(label)
+    
 
     # 全局静态优化
     static_optimizer = LabelOptimizer(labels, features, paramsA1, global_params['max_x'], global_params['max_y'])
@@ -138,7 +157,13 @@ def main():
 
     # 创建新的帧列表
     output_frames = []
+    # 累加质量指标
+    total_occ = 0.0
+    total_int = 0.0
+    total_dist = 0.0
     num_frames = len(features[0].trajectory)  # 使用第一个特征的轨迹长度作为总帧数
+
+    print(f"开始处理 {num_frames} 帧...")
 
     # 处理每一帧
     for frame_idx in range(num_frames):
@@ -179,9 +204,26 @@ def main():
             labels[i].position = (x, y)
             labels[i].velocity = velocities[label_id]
 
+        # 评估当前帧的质量并累加
+        frame_metrics = evaluate_label_layout_quality(labels, features, frame_idx)
+        total_occ += frame_metrics['occ']
+        total_int += frame_metrics['int']
+        total_dist += frame_metrics['dist']
+
         # 创建新帧并添加到列表
         new_frame = create_new_frame(labels)
         output_frames.append(new_frame)
+
+    # 计算平均质量指标
+    avg_occ = total_occ / num_frames
+    avg_int = total_int / num_frames
+    avg_dist = total_dist / num_frames
+    
+    print(f"OCC: {avg_occ:.3f}")
+    print(f"INT: {avg_int:.3f}")
+    print(f"DIST: {avg_dist:.3f}")
+    
+    
 
     # 保存GIF
     gif_output_path = 'output1.gif'

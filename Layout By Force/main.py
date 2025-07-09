@@ -1,32 +1,17 @@
-# 文件名: main.py
 import json
+import math
+import numpy as np
 from point import Point
 from label import Label
 from force_calculator import ForceCalculator
 from simulation import SimulationEngine
 from visualizer import Visualizer
+from evaluator import evaluate_single_frame_quality
 
-
-def evaluate_overlap(params, frames_data):
-    """评估标签重叠程度的辅助函数"""
-    force_calculator = ForceCalculator(params)
-    simulation_engine = SimulationEngine(params, force_calculator)
-    simulation_engine.initialize_from_data(frames_data[0])
-    total_overlap = 0
-    for frame in frames_data:
-        simulation_engine.update_feature_positions(frame, params['time_step'])
-        simulation_engine.step(params['time_step'])
-        labels = list(simulation_engine.labels.values())
-        for i in range(len(labels)):  # 计算所有标签对的重叠面积
-            for j in range(i+1, len(labels)):
-                l1, l2 = labels[i], labels[j]
-                x_overlap = max(0, min(l1.x+l1.width, l2.x+l2.width) - max(l1.x, l2.x))
-                y_overlap = max(0, min(l1.y+l1.height, l2.y+l2.height) - max(l1.y, l2.y))
-                total_overlap += x_overlap * y_overlap
-    return total_overlap
 
 def main():
-    for datafile in ['sample_generated.json', 'sample10_1.json']:
+    for datafile in ['sample_generated.json']:
+    # for datafile in ['sample10_1.json']:
         try:
             with open(datafile, 'r') as f:
                 full_data = json.load(f)
@@ -48,14 +33,77 @@ def main():
             'D_critical': 5,
             'R_adaptive': 10,
             'time_step': 0.05,           # 仿真时间步长
-            'force_direction': 'xy'  # 力方向约束策略(project/xy)
+            'force_direction': 'project',     # 力方向约束策略(project/xy)
+            'predict_frames': 20          # 预测帧数
         }
+        
+        print(f"\n处理文件: {datafile}")
+        print(f"当前预测帧数：{params['predict_frames']}")
+        
+        # 创建仿真组件
         force_calculator = ForceCalculator(params)
         simulation_engine = SimulationEngine(params, force_calculator)
         simulation_engine.initialize_from_data(frames_data[0])
+        
+        # 运行仿真并评估OCC、INT、DIST指标
+        step_evaluations = []
+        total_occ_sum = 0
+        total_int_sum = 0  
+        total_dist_sum = 0
+        frame_count = 0
+        
+        print("开始仿真和评估...")
+        
+        # 评估初始帧
+        initial_quality = evaluate_single_frame_quality(simulation_engine)
+        step_evaluations.append(initial_quality)
+        total_occ_sum = initial_quality['occ']
+        total_int_sum = initial_quality['int']
+        total_dist_sum = initial_quality['dist']
+        frame_count = 1
+        
+        # 运行仿真，每一步都评估
+        time_step = params['time_step']
+        for frame_num in range(1, len(frames_data)):
+            simulation_engine.update_feature_positions(frames_data[frame_num], time_step)
+            
+            # 每帧进行多个子步骤以提高稳定性
+            sub_steps = 5
+            for sub_step in range(sub_steps):
+                simulation_engine.step(time_step / sub_steps)
+                
+                # 评估当前步骤
+                quality = evaluate_single_frame_quality(simulation_engine)
+                step_evaluations.append(quality)
+                
+                # 累积到总和中
+                total_occ_sum += quality['occ']
+                total_int_sum += quality['int'] 
+                total_dist_sum += quality['dist']
+                frame_count += 1
+        
+        print("仿真完成")
+        
+        # 计算最终平均值
+        final_avg_occ = total_occ_sum / frame_count
+        final_avg_int = total_int_sum / frame_count  
+        final_avg_dist = total_dist_sum / frame_count
+        
+        # 输出最终结果
+        print(f"OCC: {final_avg_occ:.2f}")
+        print(f"INT: {final_avg_int:.2f}") 
+        print(f"DIST: {final_avg_dist:.1f}")
+        
+        # 重新创建仿真引擎用于可视化
+        force_calculator = ForceCalculator(params)
+        simulation_engine = SimulationEngine(params, force_calculator)
+        simulation_engine.initialize_from_data(frames_data[0])
+        
         visualizer = Visualizer(simulation_engine, frames_data, params)
         outname = f"output_kalman_{datafile.replace('.json','')}.gif"
         visualizer.run_and_save(outname)
+            
+        print("="*50)
 
 if __name__ == '__main__':
     main()

@@ -12,7 +12,7 @@ paramsA2 = {
     'Wtime': 15,  # 时间约束力权重
     'Wspace': 20,  # 空间约束力权重
     'Dspace': 100,  # 空间约束力作用距离
-    'delta_t': 0.1,  # 特征未来预测时间间隔
+    'delta_t': 0.05,  # 特征未来预测时间间隔
 }
 
 class DynamicLabelOptimizer:

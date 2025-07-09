@@ -33,24 +33,3 @@ def initialize_features_from_data(positions_list, frame_interval=0.05):
         features.append(feature)
     
     return features
-
-# 示例调用
-if __name__ == '__main__':
-    # 生成轨迹数据
-    from generate_data import generate_trajectories
-    positions_list = generate_trajectories()
-
-    # 使用轨迹数据初始化 Feature 对象
-    new_features = initialize_features_from_data(
-        positions_list,
-        frame_interval=0.05  # 假设帧间隔为 50ms（0.05秒）
-    )
-
-    # 输出结果
-    for feature in new_features:
-        print(f"Feature ID: {feature.id}")
-        print(f"  Color: {feature.color}")
-        print(f"  Initial Position: {feature.position}")
-        print(f"  Velocity: {feature.velocity}")
-        print(f"  Trajectory_Length: {len(feature.trajectory)}")
-        print(f"  Trajectory: {feature.trajectory[:3]} ...")  # 显示前3个点

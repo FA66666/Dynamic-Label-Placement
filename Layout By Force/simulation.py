@@ -58,17 +58,29 @@ class SimulationEngine:
             
         return not (lx_max < nx_min or lx_min > nx_max or ly_max < ny_min or ly_min > ny_max)
 
-    def step(self, time_step):
+    def step(self, time_step, step_callback=None):
         """执行一个仿真步骤：预测->决策->更新"""
         grid = self._build_grid()
         new_forces = {}
 
+        # 多帧预测碰撞检测
+        predict_frames = self.params.get('predict_frames', 1)
         predicted_positions = {}
         all_objects = list(self.labels.values()) + list(self.features.values())
+        
         for obj in all_objects:
-            u = np.array([[obj.ax], [obj.ay]]) if isinstance(obj, Label) else 0  # 标签有加速度控制输入
-            predicted_state = obj.kf.predict(u=u)
-            predicted_positions[obj.id] = (predicted_state[0,0], predicted_state[2,0])
+            # 预测多帧位置
+            current_state = obj.kf.x.copy()
+            predicted_pos_list = []
+            
+            for frame in range(predict_frames):
+                u = np.array([[obj.ax], [obj.ay]]) if isinstance(obj, Label) else 0
+                predicted_state = obj.kf.predict(u=u)
+                predicted_pos_list.append((predicted_state[0,0], predicted_state[2,0]))
+            
+            # 恢复原始状态（因为predict会修改kf状态）
+            obj.kf.x = current_state
+            predicted_positions[obj.id] = predicted_pos_list
 
         for label_id, label in self.labels.items():
             apply_force = False
@@ -80,13 +92,17 @@ class SimulationEngine:
                     if cell_key in grid:
                         candidate_neighbors.extend(grid[cell_key])
             
-            pred_label_pos = predicted_positions[label_id]
-            for neighbor in candidate_neighbors:
-                if neighbor.id == label.id: continue
-                pred_neighbor_pos = predicted_positions[neighbor.id]
-                
-                if self._check_predicted_collision(label, pred_label_pos, neighbor, pred_neighbor_pos):
-                    apply_force = True  # 预测到碰撞，需要施加力
+            # 检查任一预测帧是否有碰撞
+            for frame in range(predict_frames):
+                pred_label_pos = predicted_positions[label_id][frame]
+                for neighbor in candidate_neighbors:
+                    if neighbor.id == label.id: continue
+                    pred_neighbor_pos = predicted_positions[neighbor.id][frame]
+                    
+                    if self._check_predicted_collision(label, pred_label_pos, neighbor, pred_neighbor_pos):
+                        apply_force = True  # 预测到碰撞，需要施加力
+                        break
+                if apply_force:
                     break
             
             if apply_force:
@@ -132,3 +148,7 @@ class SimulationEngine:
             label.x = min(max(label.x, 0), 1000 - label.width)  # 边界约束
             label.y = min(max(label.y, 0), 1000 - label.height)
             label.kf.update(np.array([[label.x], [label.y]]))  # 更新卡尔曼滤波器
+        
+        # 如果提供了回调函数，调用它来评估当前帧质量
+        if step_callback:
+            step_callback(self)

@@ -9,7 +9,7 @@ import matplotlib.patches as patches
 paramsA1 = {
     'Wlabel-label': 80,
     'Wlabel-feature': 50,
-    'Worient': [1, 3, 2, 4],  # 四个象限的权重
+    'Worient': [1, 2, 3, 4],  # 四个象限的权重
     'Wdistance': 20,
     'Wout-of-axes': 320,
     'Wintersect': 1,  # leader线交叉惩罚权重
@@ -426,10 +426,6 @@ class LabelOptimizer:
         self.detect_joint_sets()
         # print(self.joint_sets)
 
-        output_dir = "optimized_labels_all_steps"
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-
         # 初始化标签位置（如果尚未设置）
         for label in self.labels:
             if not hasattr(label, 'position') or label.position is None:
@@ -474,9 +470,6 @@ class LabelOptimizer:
 
             # 存储当前 joint set 的优化结果
             joint_set['position'] = {f_idx: optimized_positions[f_idx] for f_idx in current_features}
-
-            # 绘制当前步骤的结果图
-            self.plot_label_layout(self.features, self.labels, joint_set, output_dir, idx)
 
             # 记录第一帧和所有 joint set 的位置信息
             if frame_number == 0:
@@ -527,84 +520,4 @@ class LabelOptimizer:
                     return True
         return False
 
-    def plot_label_layout(self, all_features, all_labels, optimized_joint_set_info, output_dir, joint_set_idx):
-        """绘制优化特定关节集后所有标签和特征的布局, 并标注ID"""
-        fig, ax = plt.subplots(figsize=(12, 12))
-        frame_number = optimized_joint_set_info['frame']
-        optimized_indices = list(optimized_joint_set_info['set'])
-        text_offset = 5  # 增加文本偏移量
-
-        # 设置坐标轴范围
-        ax.set_xlim(0, self.max_x)
-        ax.set_ylim(0, self.max_y)
-        ax.set_aspect('equal')
-
-        # --- 绘制坐标轴 ---
-        # X轴
-        ax.plot([50, 950], [950, 950], color='black', linewidth=2)
-        # Y轴
-        ax.plot([50, 50], [50, 950], color='black', linewidth=2)
-        
-        # 绘制刻度
-        for i in range(0, 901, 100):
-            # X轴刻度
-            ax.plot([50 + i, 50 + i], [950, 940], color='black', linewidth=1)
-            ax.text(50 + i - 10, 955, str(i), fontsize=8)
-            # Y轴刻度
-            ax.plot([50, 60], [950 - i, 950 - i], color='black', linewidth=1)
-            ax.text(30, 950 - i - 5, str(i), fontsize=8)
-
-        # --- 绘制所有特征点 ---
-        for i, feature in enumerate(all_features):
-            x, y = feature.position
-            # 绘制特征点（彩色圆点）
-            ax.plot(x, y, 'o', color=feature.color, markersize=10, markeredgecolor='black')
-            # 添加特征索引文本
-            ax.text(x + text_offset, y + text_offset, f'F{i}', fontsize=8, color='black')
-
-        # --- 绘制所有标签 ---
-        current_label_positions = {}
-        for i, label in enumerate(all_labels):
-            if hasattr(label, 'position') and label.position:
-                current_label_positions[i] = label.position
-
-        if current_label_positions:
-            for i, pos in current_label_positions.items():
-                label_obj = all_labels[i]
-                x, y = pos
-                width = label_obj.width
-                height = label_obj.length
-                
-                # 计算矩形坐标（中心点坐标）
-                left = x - height // 2
-                bottom = y - width // 2
-                
-                # 绘制矩形
-                lw = 2 if i in optimized_indices else 1
-                rect = patches.Rectangle((left, bottom), height, width, 
-                                       linewidth=lw, edgecolor='red', facecolor='none')
-                ax.add_patch(rect)
-                
-                # 添加标签ID文本
-                text_color = 'blue' if i in optimized_indices else 'black'
-                font_weight = 'bold' if i in optimized_indices else 'normal'
-                ax.text(x + text_offset, y + text_offset, f'L{label_obj.id}', 
-                       fontsize=9, color=text_color, weight=font_weight)
-
-        # --- 绘制 Leader Lines ---
-        for i, label_pos in current_label_positions.items():
-            feature_pos = all_features[i].position
-            line_color = 'blue' if i in optimized_indices else 'gray'
-            line_style = '-' if i in optimized_indices else '--'
-            line_width = 1.5 if i in optimized_indices else 1.0
-            ax.plot([feature_pos[0], label_pos[0]], [feature_pos[1], label_pos[1]],
-                    color=line_color, linestyle=line_style, linewidth=line_width)
-
-        # --- 图表设置 ---
-        ax.set_title(f"优化 Joint Set {joint_set_idx} (Frame {frame_number}) 后的布局")
-        ax.grid(True, linestyle='--', alpha=0.3)
-        
-        # 保存图像
-        fig.savefig(f"{output_dir}/all_layout_after_joint_set_{joint_set_idx}_frame_{frame_number}.png", 
-                   bbox_inches='tight')
-        plt.close(fig)
+    
