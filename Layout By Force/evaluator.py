@@ -5,6 +5,13 @@
 - OCC (Occlusion): 遮挡指标
 - INT (Intersection): 交叉指标  
 - DIST (Distance): 距离指标
+
+以及论文中的精确公式评估的标签布局质量指标：
+- S_overlap: 重叠度指标
+- S_position: 位置距离指标
+- S_aesthetics: 美观度指标（引导线交叉次数）
+- S_angle_smoothness: 角度平滑度指标
+- S_distance_smoothness: 距离平滑度指标
 """
 
 import math
@@ -146,3 +153,163 @@ def lines_intersect(x1, y1, x2, y2, x3, y3, x4, y4):
     
     return ccw(x1, y1, x3, y3, x4, y4) != ccw(x2, y2, x3, y3, x4, y4) and \
            ccw(x1, y1, x2, y2, x3, y3) != ccw(x1, y1, x2, y2, x4, y4)
+
+
+def evaluate_layout_quality(simulation_engine, frames_data):
+    """
+    使用论文中的精确公式评估标签布局质量
+    
+    计算五个主要指标：
+    - S_overlap: 重叠度指标 (pixel²)
+    - S_position: 位置距离指标 (pixel)  
+    - S_aesthetics: 美观度指标（引导线交叉次数）
+    - S_angle_smoothness: 角度平滑度指标 (degree)
+    - S_distance_smoothness: 距离平滑度指标 (pixel)
+    
+    参数：
+        simulation_engine: 仿真引擎实例
+        frames_data: 帧数据列表
+        
+    返回：
+        dict: 包含各项质量指标的字典
+    """
+    from force_calculator import ForceCalculator
+    from simulation import SimulationEngine
+    
+    M = len(frames_data)  # 帧数
+    N = len(simulation_engine.labels)  # 标签数
+    
+    # 按论文公式初始化累加器
+    total_label_overlap = 0  # ∑∑O_{i,j}
+    total_feature_overlap = 0  # ∑∑P_{i,j}
+    total_position_distance = 0  # ∑∑r_i
+    total_intersections = 0  # ∑∑I_i
+    total_angle_changes = 0  # ∑∑|θ_{i,k} - θ_{i,k+1}|
+    total_distance_changes = 0  # ∑∑|r_{i,k} - r_{i,k+1}|
+    
+    prev_angles = {}
+    prev_distances = {}
+    
+    force_calculator = ForceCalculator(simulation_engine.params)
+    sim_engine = SimulationEngine(simulation_engine.params, force_calculator)
+    sim_engine.initialize_from_data(frames_data[0])
+    
+    for k, frame in enumerate(frames_data):
+        sim_engine.update_feature_positions(frame, simulation_engine.params['time_step'])
+        sim_engine.step(simulation_engine.params['time_step'])
+        labels = list(sim_engine.labels.values())
+        features = list(sim_engine.features.values())
+        
+        # 1. S_Overlap = (1/M) * ∑_{k=1}^M (∑_{i}∑_{j≠i} O_{i,j} + ∑_{i}∑_{j≠i} P_{i,j})
+        frame_label_overlap = 0
+        frame_feature_overlap = 0
+        
+        # 标签-标签重叠 O_{i,j}
+        for i in range(N):
+            for j in range(N):
+                if i != j:
+                    l1, l2 = labels[i], labels[j]
+                    x_overlap = max(0, min(l1.x+l1.width, l2.x+l2.width) - max(l1.x, l2.x))
+                    y_overlap = max(0, min(l1.y+l1.height, l2.y+l2.height) - max(l1.y, l2.y))
+                    frame_label_overlap += x_overlap * y_overlap
+        
+        # 标签-特征重叠 P_{i,j}
+        for i in range(N):
+            for j in range(N):
+                if i != j:  # 标签i与特征j（j≠i）的重叠
+                    label = labels[i]
+                    feature = features[j]
+                    
+                    lx_min, ly_min = label.x, label.y
+                    lx_max, ly_max = label.x + label.width, label.y + label.height
+                    feature_radius = getattr(feature, 'radius', 1)  # 默认半径1
+                    fx_min, fy_min = feature.x - feature_radius, feature.y - feature_radius
+                    fx_max, fy_max = feature.x + feature_radius, feature.y + feature_radius
+                    
+                    x_overlap = max(0, min(lx_max, fx_max) - max(lx_min, fx_min))
+                    y_overlap = max(0, min(ly_max, fy_max) - max(ly_min, fy_min))
+                    frame_feature_overlap += x_overlap * y_overlap
+        
+        total_label_overlap += frame_label_overlap
+        total_feature_overlap += frame_feature_overlap
+        
+        # 2. S_Position = (1/M) * ∑_{k=1}^M ∑_{i=1}^N r_i
+        frame_position_distance = 0
+        for i in range(N):
+            label = labels[i]
+            feature = sim_engine.features[label.id]
+            distance = math.hypot(label.center_x - feature.x, label.center_y - feature.y)
+            frame_position_distance += distance
+        
+        total_position_distance += frame_position_distance
+        
+        # 3. S_Aesthetics = (1/M) * ∑_{k=1}^M ∑_{i=1}^N I_i
+        frame_intersections = 0
+        for i in range(N):
+            label_i = labels[i]
+            feature_i = sim_engine.features[label_i.id]
+            intersections_count = 0
+            
+            for j in range(N):
+                if i != j:
+                    label_j = labels[j]
+                    feature_j = sim_engine.features[label_j.id]
+                    
+                    # 检查标签i的引导线与标签j的引导线是否相交
+                    if lines_intersect(label_i.center_x, label_i.center_y, feature_i.x, feature_i.y,
+                                     label_j.center_x, label_j.center_y, feature_j.x, feature_j.y):
+                        intersections_count += 1
+            
+            frame_intersections += intersections_count
+        
+        total_intersections += frame_intersections
+        
+        # 4. S_Smoothness: 计算相邻帧间的变化
+        current_angles = {}
+        current_distances = {}
+        
+        for i in range(N):
+            label = labels[i]
+            feature = sim_engine.features[label.id]
+            
+            # 计算角度 θ_i (特征点到标签的角度)
+            angle = math.atan2(label.center_y - feature.y, label.center_x - feature.x)
+            distance = math.hypot(label.center_x - feature.x, label.center_y - feature.y)
+            
+            current_angles[label.id] = angle
+            current_distances[label.id] = distance
+            
+            # 只有k>0时才计算变化
+            if k > 0 and label.id in prev_angles:
+                # S^θ_Smoothness = (1/(M-1)) * ∑_{k=1}^{M-1} ∑_{i=1}^N |θ_{i,k} - θ_{i,k+1}|
+                angle_diff = abs(angle - prev_angles[label.id])
+                # 处理角度跳跃 (-π, π)
+                if angle_diff > math.pi:
+                    angle_diff = 2 * math.pi - angle_diff
+                total_angle_changes += angle_diff
+                
+                # S^r_Smoothness = (1/(M-1)) * ∑_{k=1}^{M-1} ∑_{i=1}^N |r_{i,k} - r_{i,k+1}|
+                distance_diff = abs(distance - prev_distances[label.id])
+                total_distance_changes += distance_diff
+        
+        prev_angles = current_angles.copy()
+        prev_distances = current_distances.copy()
+    
+    # 按论文公式计算最终指标
+    S_overlap = (total_label_overlap + total_feature_overlap) / M
+    S_position = total_position_distance / M / N
+    S_aesthetics = total_intersections / M / N
+    S_angle_smoothness = math.degrees(total_angle_changes / (M - 1) / N) if M > 1 else 0
+    S_distance_smoothness = total_distance_changes / (M - 1) / N if M > 1 else 0
+    
+    return {
+        'S_overlap': S_overlap,
+        'S_position': S_position, 
+        'S_aesthetics': S_aesthetics,
+        'S_angle_smoothness': S_angle_smoothness,
+        'S_distance_smoothness': S_distance_smoothness,
+        'total_frames': M,
+        'total_labels': N,
+        'raw_label_overlap': total_label_overlap,
+        'raw_feature_overlap': total_feature_overlap
+    }

@@ -5,7 +5,7 @@ from Global_spatiotemporal_joint_optimization import LabelOptimizer, paramsA1 as
 from load_json_data import load_trajectories_from_json, get_label_info_from_json
 from initialize import initialize_features_from_data
 from label import Label
-from quality_evaluation import evaluate_label_layout_quality
+from quality_evaluation import evaluate_label_layout_quality, calculate_paper_metrics
 
 # 参数设置（合并静态和动态参数）
 global_params = {
@@ -89,15 +89,12 @@ def main():
     # 指定JSON数据文件路径 - 可以选择不同的数据文件
     json_file_path = 'sample_generated.json' 
     
-    
     # 从JSON文件加载轨迹数据
     positions_list = load_trajectories_from_json(json_file_path)
 
-    
     # 从JSON文件获取标签信息
     label_info_list = get_label_info_from_json(json_file_path)
 
-    
     # 使用轨迹数据初始化特征点
     features = initialize_features_from_data(
         positions_list,
@@ -146,11 +143,19 @@ def main():
     velocities = {label.id: (0.0, 0.0) for label in labels}
 
     # 初始化动态优化器
+    # 将静态优化器的约束转换为使用标签ID的格式
+    initial_constraints = {}
+    for feature_idx, constraint in static_optimizer.constraints.items():
+        label_id = labels[feature_idx].id
+        # 将极坐标约束转换为第一帧的位置约束
+        if label_id in first_frame_position:
+            initial_constraints[label_id] = first_frame_position[label_id]
+    
     dynamic_optimizer = DynamicLabelOptimizer(
         labels=labels,
         features=features,
         params=dynamic_params,
-        constraints=static_optimizer.constraints,
+        constraints=initial_constraints,  # 使用转换后的约束
         max_x=global_params['max_x'],
         max_y=global_params['max_y']
     )
@@ -161,6 +166,9 @@ def main():
     total_occ = 0.0
     total_int = 0.0
     total_dist = 0.0
+    # 添加历史记录用于综合指标计算
+    all_labels_history = []
+    all_features_history = []
     num_frames = len(features[0].trajectory)  # 使用第一个特征的轨迹长度作为总帧数
 
     print(f"开始处理 {num_frames} 帧...")
@@ -174,6 +182,21 @@ def main():
                 x = max(global_params['min_x'], min(global_params['max_x'], feature.trajectory[frame_idx][0]))
                 y = max(global_params['min_y'], min(global_params['max_y'], feature.trajectory[frame_idx][1]))
                 feature.position = (x, y)
+
+        # 根据论文思想：更新当前帧的位置约束
+        current_frame_constraints = {}
+        for joint_set_info in all_joint_set_positions:
+            if joint_set_info['frame'] == frame_idx:
+                # 当前帧的 joint set 位置约束直接使用（已经是标签ID为键）
+                current_frame_constraints.update(joint_set_info['positions'])
+        
+        # 更新动态优化器的约束
+        if current_frame_constraints:
+            dynamic_optimizer.constraints = current_frame_constraints
+            print(f"Frame {frame_idx}: Updated constraints for labels {list(current_frame_constraints.keys())}")
+        # else:
+        #     # 如果当前帧没有新的约束，保持之前的约束不变
+        #     print(f"Frame {frame_idx}: No new constraints, keeping previous constraints")
 
         # 计算当前帧的标签位置
         if frame_idx == 0:
@@ -189,7 +212,7 @@ def main():
             new_positions, new_velocities = dynamic_optimizer.optimize_labels(
                 initial_positions=current_positions,
                 initial_velocities=velocities,
-                time_delta=0.1,
+                time_delta=0.05,
                 max_iter=1
             )
 
@@ -210,18 +233,48 @@ def main():
         total_int += frame_metrics['int']
         total_dist += frame_metrics['dist']
 
+        # 保存当前帧的标签和特征状态用于综合指标计算
+        import copy
+        labels_copy = copy.deepcopy(labels)
+        features_copy = copy.deepcopy(features)
+        all_labels_history.append(labels_copy)
+        all_features_history.append(features_copy)
+
         # 创建新帧并添加到列表
         new_frame = create_new_frame(labels)
         output_frames.append(new_frame)
 
     # 计算平均质量指标
-    avg_occ = total_occ / num_frames
-    avg_int = total_int / num_frames
-    avg_dist = total_dist / num_frames
+    final_avg_occ = total_occ / num_frames
+    final_avg_int = total_int / num_frames
+    final_avg_dist = total_dist / num_frames
     
-    print(f"OCC: {avg_occ:.3f}")
-    print(f"INT: {avg_int:.3f}")
-    print(f"DIST: {avg_dist:.3f}")
+    # 计算综合评价指标
+    paper_metrics = calculate_paper_metrics(all_labels_history, all_features_history)
+    
+    # 构建质量指标字典
+    quality_metrics = {
+        'S_overlap': paper_metrics['s_overlap'],
+        'S_position': paper_metrics['s_position'],
+        'S_aesthetics': paper_metrics['s_aesthetics'],
+        'S_angle_smoothness': paper_metrics['s_smoothness_angle'],
+        'S_distance_smoothness': paper_metrics['s_smoothness_radius'],
+        'total_frames': num_frames,
+        'total_labels': len(labels)
+    }
+    
+    # 输出所有评估指标
+    print("\n=== 标签布局质量评估结果 ===")
+    print(f"OCC: {final_avg_occ:.2f}")
+    print(f"INT: {final_avg_int:.2f}") 
+    print(f"DIST: {final_avg_dist:.1f}")
+    print(f"S_overlap: {quality_metrics['S_overlap']:.2f}")
+    print(f"S_position: {quality_metrics['S_position']:.2f}")
+    print(f"S_aesthetics: {quality_metrics['S_aesthetics']:.2f}")
+    print(f"S_angle_smoothness: {quality_metrics['S_angle_smoothness']:.2f}")
+    print(f"S_distance_smoothness: {quality_metrics['S_distance_smoothness']:.2f}")
+    print(f"总帧数: {quality_metrics['total_frames']}")
+    print(f"总标签数: {quality_metrics['total_labels']}")
     
     
 

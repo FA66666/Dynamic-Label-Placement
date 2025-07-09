@@ -13,8 +13,8 @@ paramsA1 = {
     'Wdistance': 20,
     'Wout-of-axes': 320,
     'Wintersect': 1,  # leader线交叉惩罚权重
-    'Wradius': 200,
-    'Wangle': 100,
+    'Wradius': 1,
+    'Wangle': 1,
     'delta_t': 1  # 特征未来预测时间间隔
 }
 
@@ -31,11 +31,6 @@ class LabelOptimizer:
         self.joint_sets = []
         self.max_x = max_x  # 可视区域最大X坐标
         self.max_y = max_y  # 可视区域最大Y坐标
-
-    def calculate_angle_delta(self, theta):
-        """确定标签在哪个象限"""
-        quadrant = self.get_quadrant(theta)
-        return quadrant  # 返回象限而非角度差异
 
     def calculate_label_label_overlap(self, i, j, label_positions):
         """计算两个标签（矩形与矩形）的重叠面积"""
@@ -135,16 +130,20 @@ class LabelOptimizer:
         return overlap_area
 
     def get_quadrant(self, theta):
-        """根据角度确定象限"""
+        """根据角度确定象限，按照论文图3(a)的象限定义"""
+        # 论文图3(a)中的象限定义：1(右上), 2(左上), 3(左下), 4(右下)
+        # 将theta转换为0-2π范围
         theta = theta % (2 * math.pi)
+        
+        # 根据论文图3(a)的象限定义
         if 0 <= theta < math.pi/2:
-            return 1
+            return 1  # 右上象限
         elif math.pi/2 <= theta < math.pi:
-            return 2
+            return 2  # 左上象限
         elif math.pi <= theta < 3*math.pi/2:
-            return 3
+            return 3  # 左下象限
         else:
-            return 4
+            return 4  # 右下象限
 
     def cartesian_to_polar(self, cartesian):
         """笛卡尔坐标转极坐标"""
@@ -349,7 +348,7 @@ class LabelOptimizer:
 
             # 方向能量 (基于象限)
             quadrant = self.get_quadrant(theta)
-            E_position += self.params['Worient'][quadrant-1] * self.calculate_angle_delta(theta)
+            E_position += self.params['Worient'][quadrant-1]
 
             # 距离能量
             E_position += self.params['Wdistance'] * r
@@ -478,7 +477,7 @@ class LabelOptimizer:
 
             all_joint_set_positions.append({
                 'frame': frame_number,
-                'positions': {idx_feat: optimized_positions[idx_feat] for idx_feat in current_features}
+                'positions': {self.labels[idx_feat].id: optimized_positions[idx_feat] for idx_feat in current_features}
             })
         # print(all_joint_set_positions)
 

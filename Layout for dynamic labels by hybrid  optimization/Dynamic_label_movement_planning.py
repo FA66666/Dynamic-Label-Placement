@@ -8,11 +8,12 @@ paramsA2 = {
     'Dfeature-collision': 17,  # 标签-特征碰撞距离阈值
     'wpull': 25,  # 拉力权重
     'Dpull': 18,  # 拉力作用距离
+    'wfriction': 6,  # 摩擦力权重（论文附录A2）
     'c_friction': 0.7,  # 摩擦系数
     'Wtime': 15,  # 时间约束力权重
     'Wspace': 20,  # 空间约束力权重
     'Dspace': 100,  # 空间约束力作用距离
-    'delta_t': 0.05,  # 特征未来预测时间间隔
+    'delta_t': 0.5,  # 特征未来预测时间间隔
 }
 
 class DynamicLabelOptimizer:
@@ -32,11 +33,11 @@ class DynamicLabelOptimizer:
         s_i = math.hypot(self.labels[i].width, self.labels[i].length) / 2
         s_j = math.hypot(self.labels[j].width, self.labels[j].length) / 2
         distance = math.hypot(x1 - x2, y1 - y2)
-        d = distance - 0.5 * (s_i + s_j)
+        d = max(distance - 0.5 * (s_i + s_j),0)
 
         # # if d >= 0 or distance >= self.params['Dlabel-collision']:
-        if d >= 0 :
-            return (0.0, 0.0)
+        # if d >= 0 :
+        #     return (0.0, 0.0)
         magnitude = self.params['wlabel-collision'] * min(d / self.params['Dlabel-collision'] - 1, 0)
         nx = (x1 - x2) /(distance+1e-6)
         ny = (y1 - y2) /(distance+1e-6)
@@ -57,7 +58,7 @@ class DynamicLabelOptimizer:
             feature_x, feature_y = self.features[j].position
             r_j = self.features[j].radius
             distance = math.hypot(label_x - feature_x, label_y - feature_y)
-            d = distance - 0.5 * (s_i + r_j)
+            d = max(distance - 0.5 * (s_i + r_j),0)
             
             # 只有当距离小于阈值时才计算排斥力
             if d < self.params['Dfeature-collision']:
@@ -81,13 +82,14 @@ class DynamicLabelOptimizer:
         distance = math.hypot(label_x - feature_x, label_y - feature_y)
         effective_distance = math.fabs(distance - 0.5 * (s_i + r_i))
 
+        # 按论文公式：力作用条件
         if effective_distance <= self.params['Dpull']:
             return (0.0, 0.0)
 
-
-        magnitude = self.params['wpull'] * math.log(effective_distance - self.params['Dpull'] + 1)
-        nx = (feature_x - label_x) /(distance+1e-6)
-        ny = (feature_y - label_y) /(distance+1e-6)
+        # 按论文公式：f_pull = -ln(...) * (pi - li) / ||pi - li||
+        magnitude = -self.params['wpull'] * math.log(effective_distance - self.params['Dpull'] + 1)
+        nx = (label_x - feature_x) / (distance + 1e-6)  # pi - li 的方向
+        ny = (label_y - feature_y) / (distance + 1e-6)
         return (magnitude * nx, magnitude * ny)
 
     def compute_friction(self, i, velocities):
@@ -97,12 +99,12 @@ class DynamicLabelOptimizer:
         delta_vx = v_label_x - v_feature_x
         delta_vy = v_label_y - v_feature_y
         return (
-            -self.params['c_friction'] * delta_vx,
-            -self.params['c_friction'] * delta_vy
+            -self.params['wfriction'] * self.params['c_friction'] * delta_vx,
+            -self.params['wfriction'] * self.params['c_friction'] * delta_vy
         )
 
     def compute_time_constraint(self, i, j, label_positions):
-        if i not in label_positions:
+        if i not in label_positions or i == j:
             return (0.0, 0.0)
         
         # 标签位置
@@ -115,59 +117,72 @@ class DynamicLabelOptimizer:
         if feature_j is None:
             return (0.0, 0.0)
         
-        # 计算未来位置
+        # 计算速度大小
         v_i_mag = math.hypot(feature_i.velocity[0], feature_i.velocity[1])
         v_j_mag = math.hypot(feature_j.velocity[0], feature_j.velocity[1])
         
-        # 按论文计算未来位置
-        t_j_future_x = feature_j.position[0] + (feature_j.velocity[0] - feature_i.velocity[0]) * self.params['delta_t']
-        t_j_future_y = feature_j.position[1] + (feature_j.velocity[1] - feature_i.velocity[1]) * self.params['delta_t']
+        # 按论文计算特征j相对于特征i的未来位置
+        relative_vx = feature_j.velocity[0] - feature_i.velocity[0]
+        relative_vy = feature_j.velocity[1] - feature_i.velocity[1]
+        l_j_future_x = feature_j.position[0] + relative_vx * self.params['delta_t']
+        l_j_future_y = feature_j.position[1] + relative_vy * self.params['delta_t']
         
-        # 计算到未来位置的距离
-        dx = label_x - t_j_future_x
-        dy = label_y - t_j_future_y
-        distance = math.hypot(dx, dy)
-             
+        # 计算当前距离和未来距离
+        current_distance = math.hypot(label_x - feature_j.position[0], label_y - feature_j.position[1])
+        future_distance = math.hypot(label_x - l_j_future_x, label_y - l_j_future_y)
+        
         # 按论文公式计算
-        velocity_ratio = max(v_i_mag, v_j_mag) / (min(v_i_mag, v_j_mag) + 1e-6)  # 防止除零
+        velocity_ratio = 1+max(v_i_mag, v_j_mag) / (min(v_i_mag, v_j_mag) + 1e-6)  # 防止除零
+        distance_ratio = current_distance / (future_distance + 1e-6)
         
         # 计算力的大小
-        magnitude = self.params['Wtime'] * math.log(velocity_ratio+1) * min(distance / self.params['Dfeature-collision'] - 1, 0)
+        magnitude = self.params['Wtime'] * math.log(velocity_ratio) * min(distance_ratio - 1, 0)
         
-        # 计算方向
+        # 计算方向（指向未来位置的反方向）
+        dx = label_x - l_j_future_x
+        dy = label_y - l_j_future_y
+        distance = math.hypot(dx, dy)
+        
+        if distance == 0:
+            return (0.0, 0.0)
+        
         nx = dx / distance
         ny = dy / distance
         
         return (magnitude * nx, magnitude * ny)
 
     def compute_space_constraint(self, i, label_positions):
-        """计算空间约束力（论文公式3.2.2），拉向约束位置"""
+        """计算空间约束力（论文公式3.2.2），按论文公式实现"""
         if i not in label_positions:
             return (0.0, 0.0)
         
         # 获取当前标签位置
         current_x, current_y = label_positions[i]
         
+        # 获取标签ID（因为约束字典使用标签ID作为键）
+        label_id = self.labels[i].id
+        
         # 如果没有约束位置，返回零力
-        if i not in self.constraints:
+        if label_id not in self.constraints:
             return (0.0, 0.0)
         
-        # 获取约束位置（即将到来的特征关节集中的位置）
-        constraint_x, constraint_y = self.constraints[i]
+        # 获取约束位置（来自当前帧的joint set位置）
+        constraint_x, constraint_y = self.constraints[label_id]
         
         # 计算距离
         dx = current_x - constraint_x
         dy = current_y - constraint_y
         distance = math.hypot(dx, dy)
         
-
+        if distance == 0:
+            return (0.0, 0.0)
         
-        # 按论文公式直接计算，不加额外条件
+        # 按论文公式：f_space = ln(||pi - p'i|| + 1) * (pi - p'i) / ||pi - p'i||
         magnitude = self.params['Wspace'] * math.log(distance + 1)
-        nx = dx / distance
+        nx = dx / distance  # pi - p'i 的方向
         ny = dy / distance
         
-        return (-magnitude * nx, -magnitude * ny)  # 拉向约束位置
+        return (magnitude * nx, magnitude * ny)  # 按论文公式方向
 
     def compute_resultant_force(self, i, label_positions, velocities):
         """计算所有力的合力（论文公式3.2.3）"""
@@ -196,10 +211,12 @@ class DynamicLabelOptimizer:
         total_fx += fx
         total_fy += fy
 
-        # 时间约束力
-        fx, fy = self.compute_time_constraint(i, i, label_positions)
-        total_fx += fx
-        total_fy += fy
+        # 时间约束力 - 对所有其他特征计算
+        for j in range(len(self.features)):
+            if i != j:
+                fx, fy = self.compute_time_constraint(i, j, label_positions)
+                total_fx += fx
+                total_fy += fy
 
         # 空间约束力
         fx, fy = self.compute_space_constraint(i, label_positions)
