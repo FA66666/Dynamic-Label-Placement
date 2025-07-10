@@ -1,19 +1,19 @@
 import math
 
-# 参数设置（严格遵循论文附录A2）
+ 
 paramsA2 = {
-    'wlabel-collision': 60,  # 标签间碰撞力权重（取40-60中间值）
-    'Dlabel-collision': 30,  # 标签碰撞距离阈值
-    'wfeature-collision': 90,  # 标签-特征碰撞力权重（取50-100中间值）
-    'Dfeature-collision': 17,  # 标签-特征碰撞距离阈值
-    'wpull': 25,  # 拉力权重
-    'Dpull': 18,  # 拉力作用距离
-    'wfriction': 6,  # 摩擦力权重（论文附录A2）
-    'c_friction': 0.7,  # 摩擦系数
-    'Wtime': 15,  # 时间约束力权重
-    'Wspace': 20,  # 空间约束力权重
-    'Dspace': 100,  # 空间约束力作用距离
-    'delta_t': 0.5,  # 特征未来预测时间间隔
+    'wlabel-collision': 50,   
+    'Dlabel-collision': 30,   
+    'wfeature-collision': 75,   
+    'Dfeature-collision': 17,   
+    'wpull': 25,   
+    'Dpull': 18,   
+    'wfriction': 6,   
+    'c_friction': 0.7,   
+    'Wtime': 15,   
+    'Wspace': 20,   
+    'Dspace': 100,   
+    'delta_t': 0.03,   
 }
 
 class DynamicLabelOptimizer:
@@ -21,79 +21,101 @@ class DynamicLabelOptimizer:
         self.labels = labels
         self.features = features
         self.params = params
-        self.constraints = constraints or {}  # 静态优化的约束位置
+        self.constraints = constraints or {}   
         self.max_x = max_x
         self.max_y = max_y
 
+    # 标签-标签排斥力
     def compute_label_label_repulsion(self, i, j, label_positions):
-        """计算标签之间的排斥力（论文公式3.2.1）"""
-
         x1, y1 = label_positions[i]
         x2, y2 = label_positions[j]
-        s_i = math.hypot(self.labels[i].width, self.labels[i].length) / 2
-        s_j = math.hypot(self.labels[j].width, self.labels[j].length) / 2
-        distance = math.hypot(x1 - x2, y1 - y2)
-        d = max(distance - 0.5 * (s_i + s_j),0)
+        
+        ei_x = self.labels[i].length / 2   
+        ei_y = self.labels[i].width / 2    
+        ej_x = self.labels[j].length / 2
+        ej_y = self.labels[j].width / 2
+        dx = abs(x1 - x2) - 0.5 * (ei_x + ej_x)
+        dy = abs(y1 - y2) - 0.5 * (ei_y + ej_y)
+        d_label = max(dx, dy)   
+               
+        v = min(d_label / self.params['Dlabel-collision'] - 1, 0)
+        magnitude = self.params['wlabel-collision'] * v
 
-        # # if d >= 0 or distance >= self.params['Dlabel-collision']:
-        # if d >= 0 :
-        #     return (0.0, 0.0)
-        magnitude = self.params['wlabel-collision'] * min(d / self.params['Dlabel-collision'] - 1, 0)
-        nx = (x1 - x2) /(distance+1e-6)
-        ny = (y1 - y2) /(distance+1e-6)
+        d_vec_x = x1 - x2
+        d_vec_y = y1 - y2
+        d_norm = math.hypot(d_vec_x, d_vec_y)+1e-6
+        nx = d_vec_x / d_norm
+        ny = d_vec_y / d_norm
         return (magnitude * nx, magnitude * ny)
 
+    # 要素-标签排斥力    
     def compute_label_feature_repulsion(self, i, label_positions):
-        """计算标签与特征的排斥力（论文公式3.2.1）"""
         total_fx = 0.0
         total_fy = 0.0
-        
         label_x, label_y = label_positions[i]
-        s_i = math.hypot(self.labels[i].width, self.labels[i].length) / 2
         
-        # 计算与所有特征的排斥力
+        si_x = self.labels[i].length / 2
+        si_y = self.labels[i].width / 2
+        
         for j in range(len(self.features)):
             if i == j:
                 continue
             feature_x, feature_y = self.features[j].position
-            r_j = self.features[j].radius
-            distance = math.hypot(label_x - feature_x, label_y - feature_y)
-            d = max(distance - 0.5 * (s_i + r_j),0)
+            rj = self.features[j].radius   
             
-            # 只有当距离小于阈值时才计算排斥力
-            if d < self.params['Dfeature-collision']:
-                magnitude = self.params['wfeature-collision'] * min(d / self.params['Dfeature-collision'] - 1, 0)
-                nx = (label_x - feature_x) /(distance+1e-6)
-                ny = (label_y - feature_y) /(distance+1e-6)
-                total_fx += magnitude * nx
-                total_fy += magnitude * ny
-        
+ 
+            dx = abs(label_x - feature_x) - 0.5 * (si_x + rj)
+            dy = abs(label_y - feature_y) - 0.5 * (si_y + rj)
+            d_label_feature = max(dx, dy)   
+            
+            v = min(d_label_feature / self.params['Dfeature-collision'] - 1, 0)
+            magnitude = self.params['wfeature-collision'] * v           
+
+            d_vec_x = label_x - feature_x
+            d_vec_y = label_y - feature_y
+            d_norm = math.hypot(d_vec_x, d_vec_y)+1e-6
+                       
+            nx = d_vec_x / d_norm
+            ny = d_vec_y / d_norm
+            total_fx += magnitude * nx
+            total_fy += magnitude * ny
+            
         return (total_fx, total_fy)
 
+    # 拉力
     def compute_pulling_force(self, i, label_positions):
-        """计算标签拉力（论文公式3.2.1）"""
         if i not in label_positions:
-            return (0.0, 0.0)  # 如果标签ID没有在字典中，跳过
-
+            return (0.0, 0.0)
         label_x, label_y = label_positions[i]
         feature_x, feature_y = self.features[i].position
-        s_i = math.hypot(self.labels[i].width, self.labels[i].length) / 2
-        r_i = self.features[i].radius
-        distance = math.hypot(label_x - feature_x, label_y - feature_y)
-        effective_distance = math.fabs(distance - 0.5 * (s_i + r_i))
+    
+        si_x = self.labels[i].length / 2
+        si_y = self.labels[i].width / 2
+        ri = self.features[i].radius
+        
+ 
+        dx = abs(label_x - feature_x) - 0.5 * (si_x + ri)
+        dy = abs(label_y - feature_y) - 0.5 * (si_y + ri)
+        d_effective = max(dx, dy)   
+        
+        expr = d_effective - self.params['Dpull']
+        if expr > 0:
+            magnitude = self.params['wpull'] * math.log(expr + 1)
+            
+            # Direction from label to feature (pulling toward feature)
+            d_vec_x = feature_x - label_x
+            d_vec_y = feature_y - label_y
+            d_norm = math.hypot(d_vec_x, d_vec_y)
+            
+            if d_norm > 1e-6:
+                # Normalize direction vector
+                nx = d_vec_x / d_norm
+                ny = d_vec_y / d_norm
+                return (magnitude * nx, magnitude * ny)
+        return (0.0, 0.0)
 
-        # 按论文公式：力作用条件
-        if effective_distance <= self.params['Dpull']:
-            return (0.0, 0.0)
-
-        # 按论文公式：f_pull = -ln(...) * (pi - li) / ||pi - li||
-        magnitude = -self.params['wpull'] * math.log(effective_distance - self.params['Dpull'] + 1)
-        nx = (label_x - feature_x) / (distance + 1e-6)  # pi - li 的方向
-        ny = (label_y - feature_y) / (distance + 1e-6)
-        return (magnitude * nx, magnitude * ny)
-
+    # 摩擦力
     def compute_friction(self, i, velocities):
-        """计算摩擦力（论文公式3.2.1）"""
         v_label_x, v_label_y = velocities[i]
         v_feature_x, v_feature_y = self.features[i].velocity
         delta_vx = v_label_x - v_feature_x
@@ -103,173 +125,163 @@ class DynamicLabelOptimizer:
             -self.params['wfriction'] * self.params['c_friction'] * delta_vy
         )
 
+    # 时间约束力
     def compute_time_constraint(self, i, j, label_positions):
-        if i not in label_positions or i == j:
+        if i not in label_positions or j not in label_positions or i == j:
             return (0.0, 0.0)
-        
-        # 标签位置
-        label_x, label_y = label_positions[i]
-        
-        # 当前特征
+
+        # 标签i和j的当前位置
+        label_i_x, label_i_y = label_positions[i]
+        label_j_x, label_j_y = label_positions[j]
+
+        # 获取对应的特征点
         feature_i = self.features[i]
-        feature_j = self.features[j] if j < len(self.features) else None
-        
+        feature_j = self.features[j] if j < len(self.features) else None    
         if feature_j is None:
             return (0.0, 0.0)
-        
-        # 计算速度大小
+ 
+        # 计算特征点的速度大小
         v_i_mag = math.hypot(feature_i.velocity[0], feature_i.velocity[1])
         v_j_mag = math.hypot(feature_j.velocity[0], feature_j.velocity[1])
         
-        # 按论文计算特征j相对于特征i的未来位置
-        relative_vx = feature_j.velocity[0] - feature_i.velocity[0]
-        relative_vy = feature_j.velocity[1] - feature_i.velocity[1]
-        l_j_future_x = feature_j.position[0] + relative_vx * self.params['delta_t']
-        l_j_future_y = feature_j.position[1] + relative_vy * self.params['delta_t']
+        # 避免除零错误
+        if v_i_mag < 1e-6 and v_j_mag < 1e-6:
+            return (0.0, 0.0)
         
-        # 计算当前距离和未来距离
-        current_distance = math.hypot(label_x - feature_j.position[0], label_y - feature_j.position[1])
-        future_distance = math.hypot(label_x - l_j_future_x, label_y - l_j_future_y)
+        # 计算速度比（按论文公式）
+        max_velocity = max(v_i_mag, v_j_mag)
+        min_velocity = min(v_i_mag, v_j_mag) + 1e-6
+        velocity_ratio_log = math.log(max_velocity / min_velocity)
         
-        # 按论文公式计算
-        velocity_ratio = 1+max(v_i_mag, v_j_mag) / (min(v_i_mag, v_j_mag) + 1e-6)  # 防止除零
+        # 计算标签j的未来位置（假设标签跟随特征点运动）
+        l_j_future_x = label_j_x + feature_j.velocity[0] * self.params['delta_t']
+        l_j_future_y = label_j_y + feature_j.velocity[1] * self.params['delta_t']
+
+        # 计算距离比
+        current_distance = math.hypot(label_i_x - label_j_x, label_i_y - label_j_y)
+        future_distance = math.hypot(label_i_x - l_j_future_x, label_i_y - l_j_future_y)
+
+        if current_distance < 1e-6:
+            return (0.0, 0.0)
+            
         distance_ratio = current_distance / (future_distance + 1e-6)
-        
-        # 计算力的大小
-        magnitude = self.params['Wtime'] * math.log(velocity_ratio) * min(distance_ratio - 1, 0)
-        
-        # 计算方向（指向未来位置的反方向）
-        dx = label_x - l_j_future_x
-        dy = label_y - l_j_future_y
+
+        # 计算力的大小（按论文公式）
+        magnitude = self.params['Wtime'] * velocity_ratio_log * min(distance_ratio - 1, 0)
+
+        # 计算力的方向：从标签i指向标签j的未来位置
+        dx = l_j_future_x - label_i_x
+        dy = l_j_future_y - label_i_y
         distance = math.hypot(dx, dy)
         
-        if distance == 0:
+        if distance < 1e-6:
             return (0.0, 0.0)
-        
+            
         nx = dx / distance
         ny = dy / distance
-        
         return (magnitude * nx, magnitude * ny)
-
+        
+    # 空间约束力
     def compute_space_constraint(self, i, label_positions):
-        """计算空间约束力（论文公式3.2.2），按论文公式实现"""
         if i not in label_positions:
             return (0.0, 0.0)
-        
-        # 获取当前标签位置
         current_x, current_y = label_positions[i]
-        
-        # 获取标签ID（因为约束字典使用标签ID作为键）
         label_id = self.labels[i].id
-        
-        # 如果没有约束位置，返回零力
+
         if label_id not in self.constraints:
             return (0.0, 0.0)
         
-        # 获取约束位置（来自当前帧的joint set位置）
-        constraint_x, constraint_y = self.constraints[label_id]
-        
-        # 计算距离
+        constraint_x, constraint_y = self.constraints[label_id]  
         dx = current_x - constraint_x
         dy = current_y - constraint_y
+
+        if abs(dx) < 1e-6 and abs(dy) < 1e-6:
+            return (0.0, 0.0) 
+            
         distance = math.hypot(dx, dy)
         
-        if distance == 0:
-            return (0.0, 0.0)
-        
-        # 按论文公式：f_space = ln(||pi - p'i|| + 1) * (pi - p'i) / ||pi - p'i||
+        # 按论文公式计算力的大小
         magnitude = self.params['Wspace'] * math.log(distance + 1)
-        nx = dx / distance  # pi - p'i 的方向
-        ny = dy / distance
         
-        return (magnitude * nx, magnitude * ny)  # 按论文公式方向
-
+        # 计算力的方向：从当前位置指向约束位置（吸引力）
+        # 论文公式：(pi - p'i) / ||pi - p'i||，但这是排斥方向
+        # 空间约束力应该是吸引力，所以取负号
+        nx = -dx / distance   # 负号使力指向约束位置
+        ny = -dy / distance
+        
+        return (magnitude * nx, magnitude * ny)   
+    
+    # 计算合力
     def compute_resultant_force(self, i, label_positions, velocities):
-        """计算所有力的合力（论文公式3.2.3）"""
         total_fx = 0.0
         total_fy = 0.0
-
-        # 标签-标签排斥力
         for j in range(len(self.labels)):
             if i != j:
                 fx, fy = self.compute_label_label_repulsion(i, j, label_positions)
                 total_fx += fx
                 total_fy += fy
 
-        # 标签-特征排斥力
         fx, fy = self.compute_label_feature_repulsion(i, label_positions)
         total_fx += fx
         total_fy += fy
 
-        # 拉力
         fx, fy = self.compute_pulling_force(i, label_positions)
         total_fx += fx
         total_fy += fy
 
-        # 摩擦力
         fx, fy = self.compute_friction(i, velocities)
         total_fx += fx
         total_fy += fy
-
-        # 时间约束力 - 对所有其他特征计算
+ 
         for j in range(len(self.features)):
             if i != j:
                 fx, fy = self.compute_time_constraint(i, j, label_positions)
                 total_fx += fx
                 total_fy += fy
 
-        # 空间约束力
+ 
         fx, fy = self.compute_space_constraint(i, label_positions)
         total_fx += fx
         total_fy += fy
-
         return (total_fx, total_fy)
 
     def update_positions(self, label_positions, velocities, time_delta):
-        """更新标签位置（论文力计算流程）"""
+        
         new_positions = {}
         new_velocities = {}
 
         for i in range(len(self.labels)):
-            # 获取当前标签的位置和速度
             if i not in label_positions or i not in velocities:
-                continue  # 跳过不在字典中的标签
-
-            # 计算合力
+                continue   
+ 
             force = self.compute_resultant_force(i, label_positions, velocities)
-            acceleration_x, acceleration_y = force  # 假设质量为1
+            acceleration_x, acceleration_y = force   
 
-            # 欧拉积分更新速度
             new_vx = velocities[i][0] + acceleration_x * time_delta
             new_vy = velocities[i][1] + acceleration_y * time_delta
-
-            # 更新位置
-
+            
             new_x = label_positions[i][0] + velocities[i][0] * time_delta
             new_y = label_positions[i][1] + velocities[i][1] * time_delta
 
-            # 边界约束
             new_x = max(0, min(self.max_x, new_x))
             new_y = max(0, min(self.max_y, new_y))
 
-            # 更新字典中的位置和速度
             new_positions[i] = (new_x, new_y)
             new_velocities[i] = (new_vx, new_vy)
         return new_positions, new_velocities
 
     def optimize_labels(self, initial_positions, initial_velocities, time_delta, max_iter=1000):
-        """力导向优化过程（论文3.2.3流程）"""
-        current_positions = initial_positions.copy()  # 字典格式
-        current_velocities = initial_velocities.copy()  # 字典格式
+        
+        current_positions = initial_positions.copy()  
+        current_velocities = initial_velocities.copy()  
 
         for _ in range(max_iter):
-            # 使用字典格式的当前位置和速度
+ 
             new_positions, new_velocities = self.update_positions(
                 current_positions, current_velocities, time_delta
             )
             current_positions = new_positions
             current_velocities = new_velocities
-
         return current_positions, current_velocities
 
 

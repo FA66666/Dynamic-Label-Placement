@@ -10,7 +10,7 @@ from evaluator import evaluate_single_frame_quality, evaluate_layout_quality
 
 
 def main():
-    for datafile in ['sample_generated.json']:
+    for datafile in ['sample_generated copy_slow_2x.json']:
     # for datafile in ['sample10_1.json']:
         try:
             with open(datafile, 'r') as f:
@@ -45,11 +45,10 @@ def main():
         simulation_engine = SimulationEngine(params, force_calculator)
         simulation_engine.initialize_from_data(frames_data[0])
         
-        # 运行仿真并评估OCC、INT、DIST指标
+        # 运行仿真并评估OCC、INT指标
         step_evaluations = []
         total_occ_sum = 0
         total_int_sum = 0  
-        total_dist_sum = 0
         frame_count = 0
         
         print("开始仿真和评估...")
@@ -59,7 +58,6 @@ def main():
         step_evaluations.append(initial_quality)
         total_occ_sum = initial_quality['occ']
         total_int_sum = initial_quality['int']
-        total_dist_sum = initial_quality['dist']
         frame_count = 1
         
         # 运行仿真，每一步都评估
@@ -79,15 +77,13 @@ def main():
                 # 累积到总和中
                 total_occ_sum += quality['occ']
                 total_int_sum += quality['int'] 
-                total_dist_sum += quality['dist']
                 frame_count += 1
         
         print("仿真完成")
         
         # 计算最终平均值
         final_avg_occ = total_occ_sum / frame_count
-        final_avg_int = total_int_sum / frame_count  
-        final_avg_dist = total_dist_sum / frame_count
+        final_avg_int = total_int_sum / frame_count
         
         # 计算论文中的标准评价指标
         quality_metrics = evaluate_layout_quality(simulation_engine, frames_data)
@@ -96,7 +92,6 @@ def main():
         print("\n=== 标签布局质量评估结果 ===")
         print(f"OCC: {final_avg_occ:.2f}")
         print(f"INT: {final_avg_int:.2f}") 
-        print(f"DIST: {final_avg_dist:.1f}")
         print(f"S_overlap: {quality_metrics['S_overlap']:.2f}")
         print(f"S_position: {quality_metrics['S_position']:.2f}")
         print(f"S_aesthetics: {quality_metrics['S_aesthetics']:.2f}")

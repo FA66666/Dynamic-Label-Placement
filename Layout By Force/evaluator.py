@@ -3,8 +3,7 @@
 
 该模块实现了标签布局质量评估的核心指标：
 - OCC (Occlusion): 遮挡指标
-- INT (Intersection): 交叉指标  
-- DIST (Distance): 距离指标
+- INT (Intersection): 交叉指标
 
 以及论文中的精确公式评估的标签布局质量指标：
 - S_overlap: 重叠度指标
@@ -18,19 +17,18 @@ import math
 
 def evaluate_single_frame_quality(sim_engine, frame_index=None):
     """
-    评估单帧标签布局的三个核心质量指标
+    评估单帧标签布局的两个核心质量指标
     
     指标说明：
     - OCC (Occlusion): 遮挡指标，测量每个标签平均遮挡的对象和标签数量，值越小越好
-    - INT (Intersection): 交叉指标，测量每条引导线平均被其他引导线交叉的次数，值越小越好  
-    - DIST (Distance): 距离指标，测量标签相对于理想位置的平均距离偏差，值越小越好
+    - INT (Intersection): 交叉指标，测量每条引导线平均被其他引导线交叉的次数，值越小越好
     
     参数：
         sim_engine: 仿真引擎实例，包含当前帧的标签和特征点状态
         frame_index: 帧索引（可选，用于调试）
         
     返回：
-        dict: 包含 'occ', 'int', 'dist' 三个指标的字典
+        dict: 包含 'occ', 'int' 两个指标的字典
     """
     labels = list(sim_engine.labels.values())
     features = list(sim_engine.features.values())
@@ -105,33 +103,9 @@ def evaluate_single_frame_quality(sim_engine, frame_index=None):
     # 由于每个交叉影响两个标签，需要乘以2来确保每个标签都计入相应的交叉数
     avg_int = (total_intersections * 2) / N if N > 0 else 0
     
-    # 3. DIST - 标签位置质量评估
-    # 论文定义：测量每个标签相对于其目标对象的平均额外移动距离，近似标签的抖动程度
-    # 实现方式：由于缺少完整轨迹信息，这里计算标签与特征点的距离偏差作为近似
-    total_distance_deviation = 0
-    
-    for label in labels:
-        feature = sim_engine.features[label.id]
-        
-        # 计算标签中心到特征点的实际距离
-        current_distance = math.hypot(label.center_x - feature.x, label.center_y - feature.y)
-        
-        # 理想距离：标签与特征点之间的最优距离
-        # 使用标签对角线长度的一半，确保标签不与特征点重叠且距离适中
-        ideal_distance = math.sqrt(label.width**2 + label.height**2) / 2
-        
-        # 距离偏差：实际距离与理想距离的绝对差值
-        # 较大的偏差表示标签位置不理想，可能导致视觉混乱
-        distance_deviation = abs(current_distance - ideal_distance)
-        total_distance_deviation += distance_deviation
-    
-    # 计算平均距离偏差
-    avg_dist = total_distance_deviation / N if N > 0 else 0
-    
     return {
         'occ': avg_occ,      # 平均遮挡数量：每个标签遮挡的对象和标签的平均数量
-        'int': avg_int,      # 平均交叉数量：每条引导线被其他引导线交叉的平均次数
-        'dist': avg_dist     # 平均距离偏差：标签与理想位置的平均距离偏差（像素）
+        'int': avg_int       # 平均交叉数量：每条引导线被其他引导线交叉的平均次数
     }
 
 
@@ -297,7 +271,7 @@ def evaluate_layout_quality(simulation_engine, frames_data):
     
     # 按论文公式计算最终指标
     S_overlap = (total_label_overlap + total_feature_overlap) / M
-    S_position = total_position_distance / M / N
+    S_position = total_position_distance / M  # 论文公式：(1/M) * ∑∑r_i，不需要除以N
     S_aesthetics = total_intersections / M / N
     S_angle_smoothness = math.degrees(total_angle_changes / (M - 1) / N) if M > 1 else 0
     S_distance_smoothness = total_distance_changes / (M - 1) / N if M > 1 else 0
