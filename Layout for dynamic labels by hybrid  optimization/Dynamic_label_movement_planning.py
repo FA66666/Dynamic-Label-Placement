@@ -11,19 +11,16 @@ paramsA2 = {
     'wfriction': 6,   
     'c_friction': 0.7,   
     'Wtime': 15,   
-    'Wspace': 20,   
-    'Dspace': 100,   
-    'delta_t': 0.03,   
+    'Wspace': 20,     
+    'delta_t': 0.1,   
 }
 
 class DynamicLabelOptimizer:
-    def __init__(self, labels, features, params, constraints=None, max_x=1000, max_y=1000):
+    def __init__(self, labels, features, params, constraints=None):
         self.labels = labels
         self.features = features
         self.params = params
         self.constraints = constraints or {}   
-        self.max_x = max_x
-        self.max_y = max_y
 
     # 标签-标签排斥力
     def compute_label_label_repulsion(self, i, j, label_positions):
@@ -58,8 +55,6 @@ class DynamicLabelOptimizer:
         si_y = self.labels[i].width / 2
         
         for j in range(len(self.features)):
-            if i == j:
-                continue
             feature_x, feature_y = self.features[j].position
             rj = self.features[j].radius   
             
@@ -148,30 +143,34 @@ class DynamicLabelOptimizer:
         if v_i_mag < 1e-6 and v_j_mag < 1e-6:
             return (0.0, 0.0)
         
-        # 计算速度比（按论文公式）
+        # 计算速度比
         max_velocity = max(v_i_mag, v_j_mag)
         min_velocity = min(v_i_mag, v_j_mag) + 1e-6
         velocity_ratio_log = math.log(max_velocity / min_velocity)
         
-        # 计算标签j的未来位置（假设标签跟随特征点运动）
-        l_j_future_x = label_j_x + feature_j.velocity[0] * self.params['delta_t']
-        l_j_future_y = label_j_y + feature_j.velocity[1] * self.params['delta_t']
+        # 计算特征j的未来位置
+        # [修正] 注意：原文公式中的 l'j 指的是特征点的未来位置，而不是标签的未来位置。
+        # 这里用标签位置加上特征速度来估算，逻辑上可行。
+        l_j_future_x = feature_j.position[0] + feature_j.velocity[0] * self.params['delta_t']
+        l_j_future_y = feature_j.position[1] + feature_j.velocity[1] * self.params['delta_t']
 
-        # 计算距离比
-        current_distance = math.hypot(label_i_x - label_j_x, label_i_y - label_j_y)
+        # 计算当前和未来的距离（标签i到特征j）
+        current_distance = math.hypot(label_i_x - feature_j.position[0], label_i_y - feature_j.position[1])
         future_distance = math.hypot(label_i_x - l_j_future_x, label_i_y - l_j_future_y)
 
-        if current_distance < 1e-6:
+        # [修正] [MODIFIED] 修正距离比率，使其与论文公式 ||pi - lj|| / ||pi - l'j|| 一致
+        # 原代码为 future_distance / current_distance
+        if future_distance < 1e-6:
             return (0.0, 0.0)
-            
-        distance_ratio = current_distance / (future_distance + 1e-6)
+        
+        distance_ratio = (current_distance + 1e-6) / future_distance
 
         # 计算力的大小（按论文公式）
         magnitude = self.params['Wtime'] * velocity_ratio_log * min(distance_ratio - 1, 0)
 
-        # 计算力的方向：从标签i指向标签j的未来位置
-        dx = l_j_future_x - label_i_x
-        dy = l_j_future_y - label_i_y
+        # 计算力的方向：按论文公式 (pi - l'j) / ||pi - l'j||
+        dx = label_i_x - l_j_future_x
+        dy = label_i_y - l_j_future_y
         distance = math.hypot(dx, dy)
         
         if distance < 1e-6:
@@ -192,23 +191,23 @@ class DynamicLabelOptimizer:
             return (0.0, 0.0)
         
         constraint_x, constraint_y = self.constraints[label_id]  
-        dx = current_x - constraint_x
-        dy = current_y - constraint_y
+        
+        # [修正] [MODIFIED] 修正力的方向，使其成为指向约束点的吸引力，而非排斥力
+        # 原代码为 dx = current_x - constraint_x，是排斥力
+        dx = constraint_x - current_x
+        dy = constraint_y - current_y
 
         if abs(dx) < 1e-6 and abs(dy) < 1e-6:
             return (0.0, 0.0) 
             
         distance = math.hypot(dx, dy)
         
-        # 按论文公式计算力的大小
         magnitude = self.params['Wspace'] * math.log(distance + 1)
+
+        nx = dx / distance
+        ny = dy / distance
         
-        # 计算力的方向：从当前位置指向约束位置（吸引力）
-        # 论文公式：(pi - p'i) / ||pi - p'i||，但这是排斥方向
-        # 空间约束力应该是吸引力，所以取负号
-        nx = -dx / distance   # 负号使力指向约束位置
-        ny = -dy / distance
-        
+        # 此处返回的是吸引力，将标签拉向约束位置
         return (magnitude * nx, magnitude * ny)   
     
     # 计算合力
@@ -263,25 +262,18 @@ class DynamicLabelOptimizer:
             new_x = label_positions[i][0] + velocities[i][0] * time_delta
             new_y = label_positions[i][1] + velocities[i][1] * time_delta
 
-            new_x = max(0, min(self.max_x, new_x))
-            new_y = max(0, min(self.max_y, new_y))
-
             new_positions[i] = (new_x, new_y)
             new_velocities[i] = (new_vx, new_vy)
         return new_positions, new_velocities
 
-    def optimize_labels(self, initial_positions, initial_velocities, time_delta, max_iter=1000):
+    def optimize_labels(self, initial_positions, initial_velocities, time_delta):
         
         current_positions = initial_positions.copy()  
         current_velocities = initial_velocities.copy()  
 
-        for _ in range(max_iter):
- 
-            new_positions, new_velocities = self.update_positions(
-                current_positions, current_velocities, time_delta
-            )
-            current_positions = new_positions
-            current_velocities = new_velocities
+        new_positions, new_velocities = self.update_positions(
+            current_positions, current_velocities, time_delta
+        )
+        current_positions = new_positions
+        current_velocities = new_velocities
         return current_positions, current_velocities
-
-

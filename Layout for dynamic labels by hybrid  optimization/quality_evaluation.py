@@ -160,9 +160,11 @@ def calculate_paper_metrics(all_labels_history, all_features_history):
     s_overlap = total_overlap / M
     
     # 2. S_Position - 位置指标
-    total_distance = 0
-    total_count = 0
+    # 根据公式: S_Position = (1/M) * Σ(Σr_i)
+    # 其中r_i是标签和特征点之间的距离，单位是像素
+    total_distance_across_frames = 0
     for frame_idx in range(M):
+        frame_distance_sum = 0
         labels = all_labels_history[frame_idx]
         features = all_features_history[frame_idx]
         feature_dict = {f.id: f for f in features}
@@ -171,9 +173,9 @@ def calculate_paper_metrics(all_labels_history, all_features_history):
                 feature = feature_dict[label.id]
                 distance = math.hypot(label.position[0] - feature.position[0], 
                                     label.position[1] - feature.position[1])
-                total_distance += distance
-                total_count += 1
-    s_position = total_distance / total_count if total_count > 0 else 0
+                frame_distance_sum += distance
+        total_distance_across_frames += frame_distance_sum
+    s_position = total_distance_across_frames / M 
     
     # 3. S_Aesthetics - 美学指标（引导线交叉）
     total_intersections = 0
@@ -281,7 +283,7 @@ def calculate_rectangle_overlap(label1, label2):
 def calculate_label_feature_overlap(label, feature):
     label_x, label_y = label.position
     feature_x, feature_y = feature.position
-    feature_radius = getattr(feature, 'radius', 5)  # 默认半径5像素
+    feature_radius = getattr(feature, 'radius', 1)  # 默认半径5像素
     
     # 标签边界
     left = label_x - label.length//2

@@ -37,16 +37,16 @@ class LabelOptimizer:
         l2, w2 = self.labels[j].length, self.labels[j].width
 
         rect1 = {
-            'x_min': x1,
-            'x_max': x1 + w1,
-            'y_min': y1,
-            'y_max': y1 + l1
+            'x_min': x1 - w1//2,    
+            'x_max': x1 + w1//2,    
+            'y_min': y1 - l1//2,    
+            'y_max': y1 + l1//2     
         }
-        rect2 = {
-            'x_min': x2,
-            'x_max': x2 + w2,
-            'y_min': y2,
-            'y_max': y2 + l2
+        rect2 = {   
+            'x_min': x2 - w2//2,    
+            'x_max': x2 + w2//2,    
+            'y_min': y2 - l2//2,    
+            'y_max': y2 + l2//2     
         }
 
         overlap_x = max(0, min(rect1['x_max'], rect2['x_max']) - max(rect1['x_min'], rect2['x_min']))
@@ -125,13 +125,8 @@ class LabelOptimizer:
 
         return overlap_area
 
-    def get_quadrant(self, theta):
-       
-        
-        
+    def get_quadrant(self, theta):       
         theta = theta % (2 * math.pi)
-        
-        
         if 0 <= theta < math.pi/2:
             return 1  
         elif math.pi/2 <= theta < math.pi:
@@ -142,31 +137,21 @@ class LabelOptimizer:
             return 4  
 
     def cartesian_to_polar(self, cartesian):
-       
         x, y = cartesian
         r = math.hypot(x, y)
         theta = math.atan2(y, x)
         return r, theta
 
     def lines_intersect(self, line1, line2):
-       
-
         def ccw(A, B, C):
-           
             return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
-
         A, B = line1
         C, D = line2
-
-        
         if not all(isinstance(p, tuple) and len(p) == 2 for p in [A, B, C, D]):
             raise ValueError("每个点必须是 (x, y) 元组")
-
-        
         return ccw(A, C, D) != ccw(B, C, D) and ccw(A, B, C) != ccw(A, B, D)
 
     def calculate_leader_intersections(self, label_positions):
-       
         intersections = 0
         valid_positions = [pos for pos in label_positions if pos is not None]
 
@@ -204,7 +189,6 @@ class LabelOptimizer:
         return total_area
 
     def check_trajectory_intersection(self, feature_i, feature_j):
-       
         traj_i = self.features[feature_i].trajectory
         traj_j = self.features[feature_j].trajectory
 
@@ -245,8 +229,7 @@ class LabelOptimizer:
 
             if current_set:
                 complexity = self.calculate_joint_set_complexity(current_set, t)
-                
-                
+
                 feature_positions = {}
                 for feat_idx in current_set:
                     feature_positions[feat_idx] = self.features[feat_idx].trajectory[t]
@@ -275,42 +258,17 @@ class LabelOptimizer:
         self.joint_sets = sorted(joint_sets, key=lambda x: x['complexity'], reverse=True)
 
     def calculate_joint_set_complexity(self, feature_set, frame):
-       
-        complexity = 0
-        features_list = list(feature_set)
-
-        
-        positions = [self.features[i].trajectory[frame] for i in features_list]
-        min_x = min(p[0] for p in positions)
-        max_x = max(p[0] for p in positions)
-        min_y = min(p[1] for p in positions)
-        max_y = max(p[1] for p in positions)
-        area = (max_x - min_x + 1) * (max_y - min_y + 1)
-        density = len(feature_set) / area if area > 0 else float('inf')
-
-        
-        intersections = 0
-        for i in range(len(features_list)):
-            for j in range(i + 1, len(features_list)):
-                if self.check_trajectory_intersection(features_list[i], features_list[j]):
-                    intersections += 1
-
-        
-        complexity = density * (1 + intersections)
-        return complexity
+        # 复杂度为关节集中的点的个数
+        return len(feature_set)
 
     def calculate_static_energy(self, label_positions, joint_set):
-       
         E_overlap = 0
         E_position = 0
         E_aesthetics = 0
         E_constraint = 0
 
         current_features = list(joint_set['set'])
-        
         feature_positions = joint_set.get('feature_positions', {})
-
-        
         
         for i in range(len(current_features)):
             for j in range(i + 1, len(current_features)):
@@ -318,21 +276,18 @@ class LabelOptimizer:
                 global_j = current_features[j]
                 O_ij = self.calculate_label_label_overlap(global_i, global_j, label_positions)
                 E_overlap += self.params['Wlabel-label'] * O_ij
-
-        
+  
         for i in range(len(current_features)):
             label_i = current_features[i]
             for j in range(len(self.features)):
                 if j != label_i:  
                     P_ij = self.calculate_label_feature_overlap(label_i, j, label_positions)
                     E_overlap += self.params['Wlabel-feature'] * P_ij
-
         
         for i in range(len(current_features)):
             feature_idx = current_features[i]
             label_pos = label_positions[feature_idx]
-            
-            
+                    
             if feature_idx in feature_positions:
                 feature_pos = feature_positions[feature_idx]
             else:
@@ -340,16 +295,11 @@ class LabelOptimizer:
 
             dx = label_pos[0] - feature_pos[0]
             dy = label_pos[1] - feature_pos[1]
-            r, theta = self.cartesian_to_polar((dx, dy))
-
-            
+            r, theta = self.cartesian_to_polar((dx, dy))          
             quadrant = self.get_quadrant(theta)
             E_position += self.params['Worient'][quadrant-1]
-
-            
             E_position += self.params['Wdistance'] * r
 
-        
         out_of_axes_area = self.check_out_of_axes([label_positions[i] for i in current_features])
         leader_intersections = self.calculate_leader_intersections(label_positions)
         E_aesthetics = (
@@ -357,13 +307,10 @@ class LabelOptimizer:
             self.params['Wintersect'] * leader_intersections 
         )
 
-        
-        for idx in current_features:
-            
+        for idx in current_features:            
             if idx in self.constraints and self.check_feature_in_multiple_joint_sets(idx):
                 current_pos = label_positions[idx]
-                
-                
+            
                 if idx in feature_positions:
                     feature_pos = feature_positions[idx]
                 else:
@@ -382,7 +329,6 @@ class LabelOptimizer:
         return E_overlap + E_position + E_aesthetics + E_constraint
 
     def simulated_annealing(self, initial_positions, joint_set, max_iter=2000):
-       
         current_features = list(joint_set['set'])
         current_pos = initial_positions.copy() 
         best_pos = current_pos.copy()
@@ -391,7 +337,6 @@ class LabelOptimizer:
         temp = 1000.0
 
         for _ in range(max_iter):
-            
             new_pos = current_pos.copy() 
             for feat_idx in current_features: 
                 x, y = current_pos[feat_idx]
@@ -399,29 +344,21 @@ class LabelOptimizer:
                     x + random.uniform(-temp / 100, temp / 100),
                     y + random.uniform(-temp / 100, temp / 100)
                 )
-
             new_energy = self.calculate_static_energy(new_pos, joint_set)
-            delta = new_energy - current_energy
-
-            
+            delta = new_energy - current_energy          
             if delta < 0 or math.exp(-delta / temp) > random.random():
                 current_pos = new_pos
                 current_energy = new_energy
                 if new_energy < best_energy:
                     best_pos = new_pos 
                     best_energy = new_energy
-
             temp *= 0.99  
-
-        
         return best_pos
 
     def optimize(self):
        
         self.detect_joint_sets()
-        
 
-        
         for label in self.labels:
             if not hasattr(label, 'position') or label.position is None:
                 label.position = None 

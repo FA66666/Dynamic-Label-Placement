@@ -135,7 +135,7 @@ def evaluate_layout_quality(simulation_engine, frames_data):
     
     计算五个主要指标：
     - S_overlap: 重叠度指标 (pixel²)
-    - S_position: 位置距离指标 (pixel)  
+    - S_position: 位置距离指标，计算所有帧中标签到特征点距离的平均值 (pixel)  
     - S_aesthetics: 美观度指标（引导线交叉次数）
     - S_angle_smoothness: 角度平滑度指标 (degree)
     - S_distance_smoothness: 距离平滑度指标 (pixel)
@@ -156,7 +156,8 @@ def evaluate_layout_quality(simulation_engine, frames_data):
     # 按论文公式初始化累加器
     total_label_overlap = 0  # ∑∑O_{i,j}
     total_feature_overlap = 0  # ∑∑P_{i,j}
-    total_position_distance = 0  # ∑∑r_i
+    total_position_distance = 0  # 总的位置距离
+    total_position_count = 0  # 有效的标签-特征对计数
     total_intersections = 0  # ∑∑I_i
     total_angle_changes = 0  # ∑∑|θ_{i,k} - θ_{i,k+1}|
     total_distance_changes = 0  # ∑∑|r_{i,k} - r_{i,k+1}|
@@ -208,14 +209,17 @@ def evaluate_layout_quality(simulation_engine, frames_data):
         total_feature_overlap += frame_feature_overlap
         
         # 2. S_Position = (1/M) * ∑_{k=1}^M ∑_{i=1}^N r_i
-        frame_position_distance = 0
+        # 计算当前帧所有标签到对应特征点的距离之和
+        frame_position_sum = 0
         for i in range(N):
             label = labels[i]
-            feature = sim_engine.features[label.id]
-            distance = math.hypot(label.center_x - feature.x, label.center_y - feature.y)
-            frame_position_distance += distance
+            if label.id in sim_engine.features:
+                feature = sim_engine.features[label.id]
+                distance = math.hypot(label.center_x - feature.x, label.center_y - feature.y)
+                frame_position_sum += distance
+                total_position_count += 1
         
-        total_position_distance += frame_position_distance
+        total_position_distance += frame_position_sum
         
         # 3. S_Aesthetics = (1/M) * ∑_{k=1}^M ∑_{i=1}^N I_i
         frame_intersections = 0
@@ -271,7 +275,7 @@ def evaluate_layout_quality(simulation_engine, frames_data):
     
     # 按论文公式计算最终指标
     S_overlap = (total_label_overlap + total_feature_overlap) / M
-    S_position = total_position_distance / M  # 论文公式：(1/M) * ∑∑r_i，不需要除以N
+    S_position = total_position_distance / M  # S_Position = (1/M) * ∑_{k=1}^M ∑_{i=1}^N r_i
     S_aesthetics = total_intersections / M / N
     S_angle_smoothness = math.degrees(total_angle_changes / (M - 1) / N) if M > 1 else 0
     S_distance_smoothness = total_distance_changes / (M - 1) / N if M > 1 else 0
@@ -284,6 +288,7 @@ def evaluate_layout_quality(simulation_engine, frames_data):
         'S_distance_smoothness': S_distance_smoothness,
         'total_frames': M,
         'total_labels': N,
+        'total_position_count': total_position_count,
         'raw_label_overlap': total_label_overlap,
         'raw_feature_overlap': total_feature_overlap
     }

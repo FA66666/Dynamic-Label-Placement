@@ -10,8 +10,7 @@ from evaluator import evaluate_single_frame_quality, evaluate_layout_quality
 
 
 def main():
-    for datafile in ['sample_generated copy_slow_2x.json']:
-    # for datafile in ['sample10_1.json']:
+    for datafile in ['sample_generated.json']:
         try:
             with open(datafile, 'r') as f:
                 full_data = json.load(f)
@@ -106,7 +105,7 @@ def main():
         simulation_engine.initialize_from_data(frames_data[0])
         
         visualizer = Visualizer(simulation_engine, frames_data, params)
-        outname = f"output_kalman_{datafile.replace('.json','')}.gif"
+        outname = f"output_{datafile.replace('.json','')}.gif"
         visualizer.run_and_save(outname)
             
         print("="*50)
