@@ -66,8 +66,8 @@ def main():
         label_length = label_info['length']
         label_width = label_info['width']
         
-        initial_x =  feature.position[0] + 30
-        initial_y = feature.position[1]
+        initial_x =  feature.position[0] + 20
+        initial_y = feature.position[1] -20
         
         label = Label(
             id=feature.id,

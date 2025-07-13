@@ -8,6 +8,8 @@ from Force_based_optimizer import ForceBasedOptimizer
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import numpy as np
+import math
+from metrics import evaluate_metrics
 
 # 设置中文字体
 import matplotlib
@@ -21,7 +23,7 @@ def main():
     label_info_list = get_label_info(file_path)
     features = initialize_features(
         positions_list,
-        frame_interval=0.05
+        frame_interval=0.1
     )
 
     labels = []
@@ -34,7 +36,7 @@ def main():
         label_width = label_info['width']
 
         initial_x = feature.position[0] + 30
-        initial_y = feature.position[1]
+        initial_y = feature.position[1] 
 
         label = Label(
             id=feature.id,
@@ -64,11 +66,16 @@ def main():
     current_frame = 0  # 当前帧数
     
     # 记录初始状态
+    # 计算初始状态的特征预测力
+    initial_prediction_forces = calculate_feature_prediction_forces(
+        force_based_optimizer, current_positions, current_velocities)
+    
     optimization_history.append({
         'positions': current_positions.copy(),
         'velocities': current_velocities.copy(),
         'features': [(f.position[0], f.position[1]) for f in features],
-        'frame': current_frame
+        'frame': current_frame,
+        'prediction_forces': initial_prediction_forces.copy()
     })
     
     for step in range(num_steps):
@@ -92,15 +99,23 @@ def main():
             current_positions, current_velocities, dt
         )
         
+        # 计算当前步的特征预测力
+        current_prediction_forces = calculate_feature_prediction_forces(
+            force_based_optimizer, current_positions, current_velocities)
+        
         # 记录每一步的状态
         optimization_history.append({
             'positions': current_positions.copy(),
             'velocities': current_velocities.copy(),
             'features': [(f.position[0], f.position[1]) for f in features],
-            'frame': current_frame
+            'frame': current_frame,
+            'prediction_forces': current_prediction_forces.copy()
         })
         
-    
+    # 评价指标计算
+    metrics = evaluate_metrics(optimization_history, labels, features)
+    print("评价指标:", metrics)
+
     # 创建动画
     create_optimization_animation(optimization_history, labels, save_path='label_optimization.gif')
     
@@ -141,7 +156,7 @@ def create_optimization_animation(optimization_history, labels, save_path='label
         feature_positions = frame_data['features']
         feature_x = [pos[0] for pos in feature_positions]
         feature_y = [pos[1] for pos in feature_positions]
-        ax.scatter(feature_x, feature_y, c='red', s=100, marker='o', label='特征点', zorder=3)
+        ax.scatter(feature_x, feature_y, c='red', s=31.4, marker='o', label='特征点', zorder=3)
         
         # 绘制标签和连接线
         for i, label in enumerate(labels):
@@ -186,9 +201,54 @@ def create_optimization_animation(optimization_history, labels, save_path='label
                                  interval=100, blit=False, repeat=True)
     
     # 保存动画
-    anim.save(save_path, writer='pillow', fps=10, dpi=100)
+    anim.save(save_path, writer='pillow', fps=20, dpi=100)
     print(f"动画已保存到 {save_path}")
+
+def calculate_feature_prediction_forces(force_based_optimizer, label_positions, velocities):
+    """
+    计算每个标签的特征预测力大小
     
+    Args:
+        force_based_optimizer: 力优化器实例
+        label_positions: 标签位置字典
+        velocities: 标签速度字典
+    
+    Returns:
+        dict: 每个标签的特征预测力大小字典
+    """
+    prediction_forces = {}
+    
+    for i in range(len(force_based_optimizer.labels)):
+        if i not in label_positions:
+            continue
+            
+        total_pred_fx = 0.0
+        total_pred_fy = 0.0
+        
+        # 1. 计算特征点运动预测力
+        feature_velocities = [feature.velocity for feature in force_based_optimizer.features]
+        for j in range(len(force_based_optimizer.features)):
+            pred_fx, pred_fy = force_based_optimizer.compute_point_movement_prediction_force(
+                i, j, label_positions, feature_velocities)
+            total_pred_fx += pred_fx * param_NoAdj['c_point_predict']
+            total_pred_fy += pred_fy * param_NoAdj['c_point_predict']
+        
+        # 2. 计算其他标签运动预测力对当前标签的影响
+        for j in range(len(force_based_optimizer.labels)):
+            if i != j:
+                pred_fx, pred_fy = force_based_optimizer.compute_movement_prediction_force(
+                    i, j, label_positions, velocities)
+                total_pred_fx += pred_fx * param_NoAdj['c_label_predict']
+                total_pred_fy += pred_fy * param_NoAdj['c_label_predict']
+        
+        # 计算预测力的大小
+        prediction_force_magnitude = math.hypot(total_pred_fx, total_pred_fy)
+        prediction_forces[i] = prediction_force_magnitude
+    
+    return prediction_forces
+
+# 新增评价指标计算函数
+
 
 if __name__ == "__main__":
     main()

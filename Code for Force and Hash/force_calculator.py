@@ -32,7 +32,7 @@ class ForceCalculator:
             d = max(dx, dy)  
             
             
-            magnitude = p['wlabel-collision'] * min(d / p['Dlabel-collision'] - 1, 0)
+            magnitude = p['wlabel-collision'] *abs( min(d / p['Dlabel-collision'] - 1, 0))
 
             # 计算排斥力方向
             d_vec_x = x1 - x2
@@ -62,7 +62,7 @@ class ForceCalculator:
             dist = math.hypot(d_vec_x, d_vec_y) + 1e-6
 
             
-            magnitude = p['wfeature-collision'] * min(d_label_feature / p['Dfeature-collision'] - 1, 0)
+            magnitude = p['wfeature-collision'] * abs(min(d_label_feature / p['Dfeature-collision'] - 1, 0))
             nx = (label.center_x - N.x) / (dist + 1e-6)
             ny = (label.center_y - N.y) / (dist + 1e-6)
             fx += magnitude * nx
