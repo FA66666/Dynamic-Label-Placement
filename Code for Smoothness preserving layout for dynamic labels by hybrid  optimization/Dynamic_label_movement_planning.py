@@ -12,7 +12,7 @@ paramsA2 = {
     'c_friction': 0.7,   
     'Wtime': 15,   
     'Wspace': 20,     
-    'delta_t': 0.1,   
+    'delta_t': 0.5,   
 }
 
 class DynamicLabelOptimizer:
@@ -136,12 +136,8 @@ class DynamicLabelOptimizer:
             return (0.0, 0.0)
  
         # 计算特征点的速度大小 |vi| 和 |vj|
-        v_i_mag = math.hypot(feature_i.velocity[0], feature_i.velocity[1])
-        v_j_mag = math.hypot(feature_j.velocity[0], feature_j.velocity[1])
-        
-        # 避免除零错误
-        if min(v_i_mag, v_j_mag) < 1e-6:
-            return (0.0, 0.0)
+        v_i_mag = math.hypot(feature_i.velocity[0], feature_i.velocity[1]) + 1e-6
+        v_j_mag = math.hypot(feature_j.velocity[0], feature_j.velocity[1]) + 1e-6
         
         # 计算速度比的对数: ln(max(|vi|,|vj|) / min(|vi|,|vj|))
         velocity_ratio_log = math.log(max(v_i_mag, v_j_mag) / min(v_i_mag, v_j_mag))
@@ -154,13 +150,10 @@ class DynamicLabelOptimizer:
 
         # 计算当前距离 ||pi - lj|| 和未来距离 ||pi - l'_j||
         current_distance = math.hypot(label_i_x - feature_j.position[0], label_i_y - feature_j.position[1])
-        future_distance = math.hypot(label_i_x - l_j_future_x, label_i_y - l_j_future_y)
-
-        if future_distance < 1e-6:
-            return (0.0, 0.0)
+        future_distance = math.hypot(label_i_x - l_j_future_x, label_i_y - l_j_future_y) + 1e-6
         
         # 计算距离比率项: min(||pi - lj|| / ||pi - l'_j|| - 1, 0)
-        distance_ratio_term = min(current_distance / future_distance - 1, 0)
+        distance_ratio_term = abs(min(current_distance / future_distance - 1, 0))
 
         # 计算力的大小
         magnitude = self.params['Wtime'] * velocity_ratio_log * distance_ratio_term
@@ -175,7 +168,6 @@ class DynamicLabelOptimizer:
         
         return (magnitude * nx, magnitude * ny)
         
-    
         
         # 空间约束力
     def compute_space_constraint(self, i, label_positions):
@@ -210,7 +202,7 @@ class DynamicLabelOptimizer:
         ny = dy / distance
         
         # 此处返回的是吸引力，将标签拉向约束位置
-        return (magnitude * nx, magnitude * ny)   
+        return (-magnitude * nx, -magnitude * ny)   
     
     # 计算合力
     def compute_resultant_force(self, i, label_positions, velocities):
@@ -221,7 +213,7 @@ class DynamicLabelOptimizer:
                 fx, fy = self.compute_label_label_repulsion(i, j, label_positions)
                 total_fx += fx
                 total_fy += fy
-
+        
         fx, fy = self.compute_label_feature_repulsion(i, label_positions)
         total_fx += fx
         total_fy += fy

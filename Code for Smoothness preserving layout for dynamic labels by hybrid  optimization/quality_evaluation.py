@@ -10,124 +10,103 @@ def lines_intersect(x1, y1, x2, y2, x3, y3, x4, y4):
            ccw(x1, y1, x2, y2, x3, y3) != ccw(x1, y1, x2, y2, x4, y4)
 
 def evaluate_label_layout_quality(labels, features, frame_index=None):
+    # 统一计算所有七个指标
     N = len(labels)
     if N == 0:
-        return {'occ': 0, 'int': 0, 'dist': 0}
-    
-    # 创建特征点字典，方便快速查找
+        return {
+            'occ': 0, 'int': 0, 'dist': 0,
+            's_overlap': 0, 's_position': 0, 's_aesthetics': 0,
+            's_smoothness_angle': 0, 's_smoothness_radius': 0
+        }
+
     feature_dict = {f.id: f for f in features}
-    
-    # 1. OCC (遮挡指标) - 计算每个标签遮挡其他对象的平均数量
+
+    # OCC
     total_occlusions = 0
-    
     for i, label_i in enumerate(labels):
         occlusions_by_label_i = 0
-        
-        # 获取标签i的边界框
         x_i, y_i = label_i.position
         width_i = label_i.width
         height_i = label_i.length
-        
-        # 标签边界框 (左上角坐标系)
         left_i = x_i - height_i // 2
         top_i = y_i - width_i // 2
         right_i = x_i + height_i // 2
         bottom_i = y_i + width_i // 2
-        
-        # 计算label_i遮挡了多少其他标签
         for j, label_j in enumerate(labels):
             if i != j:
                 x_j, y_j = label_j.position
                 width_j = label_j.width
                 height_j = label_j.length
-                
-                # 标签j的边界框
                 left_j = x_j - height_j // 2
                 top_j = y_j - width_j // 2
                 right_j = x_j + height_j // 2
                 bottom_j = y_j + width_j // 2
-                
-                # 检测两个矩形是否重叠
                 x_overlap = max(0, min(right_i, right_j) - max(left_i, left_j))
                 y_overlap = max(0, min(bottom_i, bottom_j) - max(top_i, top_j))
-                
                 if x_overlap > 0 and y_overlap > 0:
                     occlusions_by_label_i += 1
-        
-        # 计算label_i遮挡了多少其他特征点
         for feature in features:
-            if feature.id != label_i.id:  # 排除标签自己对应的特征点
+            if feature.id != label_i.id:
                 feature_x, feature_y = feature.position
                 feature_radius = getattr(feature, 'radius', 1)
-                
-                # 计算矩形到圆心的最短距离
                 closest_x = max(left_i, min(feature_x, right_i))
                 closest_y = max(top_i, min(feature_y, bottom_i))
                 distance_to_rect = math.hypot(feature_x - closest_x, feature_y - closest_y)
-                
-                # 如果距离小于等于半径，则发生遮挡
                 if distance_to_rect <= feature_radius:
                     occlusions_by_label_i += 1
-        
         total_occlusions += occlusions_by_label_i
-    
-    # 计算平均遮挡数量
     avg_occ = total_occlusions / N
-    
-    # 2. INT (交叉指标) - 计算引导线相互交叉的平均次数
+
+    # INT
     total_intersections = 0
-    processed_pairs = set()  # 避免重复计算同一对引导线
-    
+    processed_pairs = set()
     for i, label_i in enumerate(labels):
         if label_i.id not in feature_dict:
             continue
-            
         feature_i = feature_dict[label_i.id]
         label_i_x, label_i_y = label_i.position
         feature_i_x, feature_i_y = feature_i.position
-        
         for j, label_j in enumerate(labels):
             if i != j and label_j.id in feature_dict:
-                # 确保每对引导线只被检测一次
                 pair_key = tuple(sorted([i, j]))
                 if pair_key in processed_pairs:
                     continue
                 processed_pairs.add(pair_key)
-                
                 feature_j = feature_dict[label_j.id]
                 label_j_x, label_j_y = label_j.position
                 feature_j_x, feature_j_y = feature_j.position
-                
-                # 检测两条引导线是否相交
                 if lines_intersect(label_i_x, label_i_y, feature_i_x, feature_i_y,
-                                 label_j_x, label_j_y, feature_j_x, feature_j_y):
+                                  label_j_x, label_j_y, feature_j_x, feature_j_y):
                     total_intersections += 1
-    
-    # 计算平均交叉次数（每个交叉影响两个标签）
     avg_int = (total_intersections * 2) / N
-    
-    # 3. DIST (距离指标) - 标签中心到特征点的实际距离
+
+    # DIST
     total_distance = 0
-    
     for label in labels:
         if label.id not in feature_dict:
             continue
-            
         feature = feature_dict[label.id]
         label_x, label_y = label.position
         feature_x, feature_y = feature.position
-        
-        # 计算标签中心到特征点的实际距离
         current_distance = math.hypot(label_x - feature_x, label_y - feature_y)
         total_distance += current_distance
-    
-    # 计算平均实际距离
     avg_dist = total_distance / N
-    
+
+    # S_Overlap, S_Position, S_Aesthetics, S_Smoothness
+    # 单帧时直接用当前帧数据，多帧时传入历史
+    all_labels_history = [labels]
+    all_features_history = [features]
+    s_metrics = calculate_paper_metrics(all_labels_history, all_features_history)
+
     return {
-        'occ': avg_occ,      # 平均遮挡数量
-        'int': avg_int,      # 平均交叉数量
-        'dist': avg_dist     # 平均实际距离（像素）
+        'occ': avg_occ,
+        'int': avg_int,
+        'dist': avg_dist,
+        's_overlap': s_metrics['s_overlap'],
+        's_position': s_metrics['s_position'],
+        's_aesthetics': s_metrics['s_aesthetics'],
+        's_smoothness_angle': s_metrics['s_smoothness_angle'],
+        's_smoothness_radius': s_metrics['s_smoothness_radius']
     }
 
 
@@ -153,7 +132,6 @@ def calculate_paper_metrics(all_labels_history, all_features_history):
         # 标签-特征重叠
         for label in labels:
             for feature in features:
-                if label.id != feature.id:
                     overlap_area = calculate_label_feature_overlap(label, feature)
                     total_overlap += overlap_area
     

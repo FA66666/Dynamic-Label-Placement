@@ -45,8 +45,10 @@ def create_new_frame(labels, frame_size=(1000, 1000), dynamic_optimizer=None):
 
         feature_x = label.feature.position[0]
         feature_y = label.feature.position[1]
+        feature_radius = label.feature.radius
 
-        draw.ellipse([feature_x-5, feature_y-5, feature_x+5, feature_y+5], 
+        draw.ellipse([feature_x-feature_radius, feature_y-feature_radius, 
+                     feature_x+feature_radius, feature_y+feature_radius], 
                     fill=label.feature.color, outline='black')
         draw.line([(x, y), (feature_x, feature_y)], fill='blue', width=1)
     return frame

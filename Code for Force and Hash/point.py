@@ -13,7 +13,7 @@ def setup_kf_for_2d_motion(dt, initial_x, initial_y):
     return GenericKalmanFilter(A=A, B=B, H=H, x=x0, P=P, Q=Q, R=R)
 
 class Point:
-    def __init__(self, id, x, y, radius=1, time_step=0.05):
+    def __init__(self, id, x, y, radius=4, time_step=0.05):
         self.id = id
         self.x = x
         self.y = y

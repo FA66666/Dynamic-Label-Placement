@@ -27,7 +27,7 @@ def initialize_features_from_data(positions_list, frame_interval=0.05):
             color=color,
             position=pos_list[0],
             velocity=compute_velocity(pos_list),
-            radius=5
+            radius=15
         )
         feature.trajectory = pos_list
         features.append(feature)

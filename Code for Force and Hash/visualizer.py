@@ -24,7 +24,15 @@ class Visualizer:
 
     def _create_artists(self):
         """创建可视化对象（特征点、标签矩形、文本、引导线）"""
-        self.feature_plots = {pid: self.ax.plot([], [], 'ko', markersize=5)[0] for pid in self.engine.features.keys()}
+        # 使用Circle patches来精确显示特征点的实际半径
+        self.feature_circles = {}
+        for pid in self.engine.features.keys():
+            feature = self.engine.features[pid]
+            # 创建圆形patch来精确表示特征点的半径
+            circle = patches.Circle((0, 0), feature.radius, fc='black', ec='black', alpha=0.8)
+            self.ax.add_patch(circle)
+            self.feature_circles[pid] = circle
+        
         self.label_rects = {pid: patches.Rectangle((0, 0), 1, 1, fc='white', ec='blue', alpha=0.8) for pid in self.engine.labels.keys()}
         self.label_texts = {pid: self.ax.text(0, 0, '', fontsize=8, ha='center', va='center') for pid in self.engine.labels.keys()}
         self.leader_lines = {pid: self.ax.plot([], [], color='gray', linestyle='--', linewidth=1)[0] for pid in self.engine.labels.keys()}
@@ -40,8 +48,9 @@ class Visualizer:
         for _ in range(sub_steps):
             self.engine.step(time_step / sub_steps)
         self.ax.set_title(f"Frame: {frame_num}")
+        # 更新特征点圆形的位置
         for pid, feature in self.engine.features.items():
-            self.feature_plots[pid].set_data([feature.x], [feature.y])
+            self.feature_circles[pid].center = (feature.x, feature.y)
 
         if hasattr(self, 'force_arrows'):  # 清除上一帧的力箭头
             for arrow in self.force_arrows:
@@ -58,7 +67,7 @@ class Visualizer:
             feature = self.engine.features[pid]
             self.leader_lines[pid].set_data([label.center_x, feature.x], [label.center_y, feature.y])  # 引导线连接
 
-        return list(self.feature_plots.values()) + list(self.label_rects.values()) + list(self.label_texts.values()) + list(self.leader_lines.values())
+        return list(self.feature_circles.values()) + list(self.label_rects.values()) + list(self.label_texts.values()) + list(self.leader_lines.values())
 
     def run_and_save(self, output_filename="label_animation.gif", interval=50):
         """运行仿真并保存为GIF动画"""

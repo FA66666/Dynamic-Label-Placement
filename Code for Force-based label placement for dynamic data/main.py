@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import numpy as np
 import math
-from metrics import evaluate_metrics
+from metrics import evaluate_metrics, evaluate_enhanced_metrics
 
 # 设置中文字体
 import matplotlib
@@ -113,8 +113,11 @@ def main():
         })
         
     # 评价指标计算
-    metrics = evaluate_metrics(optimization_history, labels, features)
-    print("评价指标:", metrics)
+    metrics = evaluate_enhanced_metrics(optimization_history, labels, features)
+    # 逐行输出评价指标
+    print("评价指标：")
+    for name, val in metrics.items():
+        print(f"{name}: {val:.4f}")
 
     # 创建动画
     create_optimization_animation(optimization_history, labels, save_path='label_optimization.gif')

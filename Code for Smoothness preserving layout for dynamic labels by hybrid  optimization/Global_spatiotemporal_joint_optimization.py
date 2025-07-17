@@ -147,8 +147,6 @@ class LabelOptimizer:
             return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
         A, B = line1
         C, D = line2
-        if not all(isinstance(p, tuple) and len(p) == 2 for p in [A, B, C, D]):
-            raise ValueError("每个点必须是 (x, y) 元组")
         return ccw(A, C, D) != ccw(B, C, D) and ccw(A, B, C) != ccw(A, B, D)
 
     def calculate_leader_intersections(self, label_positions):
@@ -159,7 +157,6 @@ class LabelOptimizer:
             for j in valid_positions:
                 line1 = (label_positions[i], self.features[i].position)
                 line2 = (label_positions[j], self.features[j].position)
-
                 if self.lines_intersect(line1, line2):
                     intersections += 1
 
