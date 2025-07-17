@@ -12,16 +12,17 @@ def generate_visualization_gif():
         'height': 1000,
         'bg_color': 'white',
         'box_outline_color': 'black',
-        'box_fill_color': '#f0f0f0',  # 浅灰色填充
+        'box_fill_color': '#f0f0f0',      # 浅灰色填充
         'text_color': 'black',
         'anchor_color': 'red',
         'line_color': 'grey',
-        'output_filename': 'label_animation.gif',
-        'duration_ms': 50  # 每帧的持续时间（毫秒），50ms = 20 FPS
+        'output_filename': 'output.gif',
+        'duration_ms': 50,               # 每帧的持续时间（毫秒），50ms = 20 FPS
+        'anchor_radius': 4               # [新增] 锚点圆圈的半径，可在此调节
     }
 
     output_json_path = 'output_positions.json'
-    sample_json_path = 'sample_generated.json'
+    sample_json_path = 'sample_input.json'
 
     # --- 2. 检查文件是否存在 ---
     if not os.path.exists(output_json_path):
@@ -39,7 +40,7 @@ def generate_visualization_gif():
     with open(sample_json_path, 'r') as f:
         sample_data = json.load(f)
 
-    # 从 sample_generated.json 获取每个标签的静态信息（如文本）
+    # 从 sample_input.json 获取每个标签的静态信息（如文本）
     static_info = {}
     initial_points = sample_data['frames'][0]['points']
     for point_id, data in initial_points.items():
@@ -47,11 +48,11 @@ def generate_visualization_gif():
 
     # --- 4. 准备字体 ---
     try:
-        # 尝试加载一个常见的字体，可以根据你的系统进行修改
         font = ImageFont.truetype("Arial.ttf", size=12)
     except IOError:
         print("警告: 未找到 Arial 字体，将使用默认字体。")
         font = ImageFont.load_default()
+
 
     # --- 5. 逐帧绘制图像 ---
     image_frames = []
@@ -102,9 +103,12 @@ def generate_visualization_gif():
                 fill=config['text_color']
             )
             
-            # 绘制锚点（一个小红点）
-            draw.rectangle(
-                (anchor_pos[0] - 2, anchor_pos[1] - 2, anchor_pos[0] + 2, anchor_pos[1] + 2),
+            # ###############################################################
+            # # [修改] 将绘制锚点的方式从固定方块改为可调节半径的圆形
+            # ###############################################################
+            r = config['anchor_radius']
+            draw.ellipse(
+                (anchor_pos[0] - r, anchor_pos[1] - r, anchor_pos[0] + r, anchor_pos[1] + r),
                 fill=config['anchor_color']
             )
         
