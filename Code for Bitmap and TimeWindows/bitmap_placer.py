@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import config # 导入配置文件
 
 # ----------------------------------------------------------------------
 # BitmapPlacer 类
@@ -8,11 +9,11 @@ import numpy as np
 # ----------------------------------------------------------------------
 class BitmapPlacer:
     """封装了基于位图的方法，用于初始的、静态的标签布局。"""
-    def __init__(self, screen_width, screen_height, radius=1, n_val=32):
+    def __init__(self, screen_width, screen_height, radius, n_val=config.N_VAL):
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.radius = radius
-        self.n = n_val
+        self.n = n_val # 从 config 加载默认值
         self.point_id_map = []
         self.anchor_x_arr = []
         self.anchor_y_arr = []

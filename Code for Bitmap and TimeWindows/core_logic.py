@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import config # 导入配置文件
 
 # --- 辅助类：用于二维向量操作 ---
 class Vec2:
@@ -37,13 +38,13 @@ class Feature:
         self.positions = {0: Vec2(initial_pos[0], initial_pos[1])} # 只记录真实观测值
         self.dt = dt # 时间步长
 
-        # --- 卡尔曼滤波器初始化 ---
+        # --- 卡尔曼滤波器初始化 (从 config 加载参数) ---
         self.kf_x = np.array([initial_pos[0], initial_pos[1], 0, 0], dtype=float)
         self.kf_F = np.array([[1, 0, self.dt, 0], [0, 1, 0, self.dt], [0, 0, 1, 0], [0, 0, 0, 1]])
         self.kf_H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
-        self.kf_Q = np.eye(4) * 0.1
-        self.kf_R = np.eye(2) * 1.0
-        self.kf_P = np.eye(4) * 100
+        self.kf_Q = np.eye(4) * config.KALMAN_Q
+        self.kf_R = np.eye(2) * config.KALMAN_R
+        self.kf_P = np.eye(4) * config.KALMAN_P_INITIAL
 
     def add_position(self, frame_idx, position_tuple):
         self.positions[frame_idx] = Vec2(position_tuple[0], position_tuple[1])

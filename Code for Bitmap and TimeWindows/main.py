@@ -4,6 +4,7 @@ import os
 import numpy as np
 from bitmap_placer import BitmapPlacer
 from core_logic import Feature, Label,Vec2
+import config # 导入配置文件
 
 def check_aabb_collision(r1, r2):
     """检查两个矩形 (x, y, w, h) 是否碰撞。"""
@@ -30,23 +31,19 @@ def find_sanctuary(label_to_move, all_labels, collision_frame_idx, placer, curre
 
 def main():
     """主函数"""
-    # 1. 配置
-    CONFIG = {'width': 1000, 'height': 1000, 'radius': 2, 'window': 5, 'dt': 1.0}
-    INPUT_FILE, OUTPUT_FILE = 'sample_input.json', 'output_positions.json'
-    
-    # 2. 加载原始数据
-    with open(INPUT_FILE, 'r') as f: all_frames_data = json.load(f)['frames']
+    # 1. 加载原始数据 (从 config 加载文件名)
+    with open(config.INPUT_FILE, 'r') as f: all_frames_data = json.load(f)['frames']
     num_frames = len(all_frames_data)
 
-    # 3. 创建并初始化 Feature 对象
+    # 2. 创建并初始化 Feature 对象 (从 config 加载 dt)
     features = {}
     frame_0_points = all_frames_data[0]['points']
     for pid, data in frame_0_points.items():
         size = (math.ceil(data["size"][0]), math.ceil(data["size"][1] + data["size"][2]))
-        features[pid] = Feature(pid, data['text'], size, data['anchor'], dt=CONFIG['dt'])
+        features[pid] = Feature(pid, data['text'], size, data['anchor'], dt=config.DT)
     
-    # 4. 初始化 Placer 和 Label 对象
-    placer = BitmapPlacer(CONFIG['width'], CONFIG['height'], CONFIG['radius'])
+    # 3. 初始化 Placer 和 Label 对象 (从 config 加载屏幕尺寸和半径)
+    placer = BitmapPlacer(config.SCREEN_WIDTH, config.SCREEN_HEIGHT, config.LABEL_RADIUS)
     initial_solution = placer.run_initial_placement(frame_0_points)
     
     labels = {}
@@ -57,7 +54,7 @@ def main():
         label.add_frame_data(0, bbox, pos_model)
         labels[pid] = label
 
-    # 5. 主循环
+    # 4. 主循环
     final_positions = {0: {pid: {'anchor': l.feature.get_position_at(0).as_tuple, 'bbox': l.history[0]['bbox']} for pid, l in labels.items()}}
     
     for t in range(1, num_frames):
@@ -68,19 +65,16 @@ def main():
             feature.update(np.array(observed_pos))
             feature.predict_step()
 
-        # B. 碰撞预测
+        # B. 碰撞预测 (从 config 加载预测窗口)
         collisions = {}
         for id_A, label_A in labels.items():
-            # 不再跳过已有计划的标签，让它们也参与新一轮预测
             for id_B, label_B in labels.items():
                 if int(id_A) >= int(id_B): continue
                 
-                for k in range(1, CONFIG['window'] + 1):
+                for k in range(1, config.PREDICTION_WINDOW + 1):
                     future_t = t + k
                     if future_t >= num_frames: break
                     
-                    # 确定每个标签在做预测时，应该基于哪个位置模型
-                    # 如果有计划，就基于计划的目标模型；否则基于上一帧的模型
                     model_A = label_A.avoidance_plan['target_pos_model'] if label_A.avoidance_plan else label_A.history[t-1]['pos_model']
                     model_B = label_B.avoidance_plan['target_pos_model'] if label_B.avoidance_plan else label_B.history[t-1]['pos_model']
 
@@ -104,8 +98,6 @@ def main():
         # C. 设置或更新躲避计划
         for pid, info in collisions.items():
             label = labels[pid]
-
-
             start_offset = Vec2(*label.history[t-1]['bbox'][:2]) - label.feature.get_position_at(t-1)
             predicted_target_anchor = features[pid].predict_future(info['at'] - t)
             target_offset = Vec2(*info['bbox'][:2]) - predicted_target_anchor
@@ -118,10 +110,10 @@ def main():
             frame_t_pos[pid] = {'anchor': label.feature.get_position_at(t).as_tuple, 'bbox': bbox, 'pos_model': model}
         final_positions[t] = frame_t_pos
         
-    # 6. 保存结果
-    with open(OUTPUT_FILE, 'w') as f:
+    # 5. 保存结果 (从 config 加载文件名)
+    with open(config.OUTPUT_FILE, 'w') as f:
         json.dump(final_positions, f, indent=2)
-    print(f"处理完成，结果已保存至 '{OUTPUT_FILE}'")
+    print(f"处理完成，结果已保存至 '{config.OUTPUT_FILE}'")
 
 if __name__ == '__main__':
     main()
