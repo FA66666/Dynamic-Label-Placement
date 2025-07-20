@@ -80,15 +80,15 @@ class Label:
         self.id = feature.id
         self.history = {}
         self.avoidance_plan = None
+        self.current_offset = None
 
     def add_frame_data(self, frame_idx, bbox, pos_model):
         self.history[frame_idx] = {'bbox': bbox, 'pos_model': pos_model}
     
-    def set_avoidance_plan(self, start_frame, end_frame, start_offset, target_offset, target_pos_model):
+    def set_avoidance_plan(self, start_frame, end_frame, start_offset, target_offset):
         self.avoidance_plan = {
             "start_frame": start_frame, "end_frame": end_frame,
             "start_offset": start_offset, "target_offset": target_offset,
-            "target_pos_model": target_pos_model
         }
 
     def cancel_avoidance_plan(self):
@@ -96,39 +96,55 @@ class Label:
 
     def calculate_pos_at_frame(self, frame_idx, placer):
         current_anchor = self.feature.get_position_at(frame_idx)
-        last_pos_model = self.history[frame_idx-1]['pos_model']
+        w, h = self.feature.size
         
         if self.avoidance_plan:
             plan = self.avoidance_plan
-            start_frame, end_frame = plan['start_frame'], plan['end_frame']
+            
+            # 动画逻辑修改：不再严格执行到end_frame，而是将计划视为朝向目标的引导
+            # 起点是上一帧的实际位置
+            if frame_idx > 0 and (frame_idx - 1) in self.history:
+                 start_offset = Vec2(*self.history[frame_idx - 1]['bbox'][:2]) - self.feature.get_position_at(frame_idx-1)
+            else: # Fallback for the first frame
+                 start_offset = self.current_offset if self.current_offset else Vec2(0,0)
 
-            if start_frame <= frame_idx < end_frame:
-                duration = end_frame - start_frame
-                time_step = (frame_idx - start_frame) / duration if duration > 0 else 1
-                
-                p0, p3 = plan['start_offset'], plan['target_offset']
-                p1 = p0 + (p3 - p0) * 0.3 + Vec2(-(p3 - p0).y, (p3 - p0).x) * 0.3
-                p2 = p0 + (p3 - p0) * 0.7 + Vec2(-(p3 - p0).y, (p3 - p0).x) * 0.3
-                
-                t, inv_t = time_step, 1 - time_step
+            target_offset = plan['target_offset']
+            
+            # 持续时间决定了移动速度，持续时间越短，移动越快
+            duration = max(1, plan['end_frame'] - plan['start_frame'])
+            time_step = 1.0 / duration # 每帧移动路径的1/duration
 
-                offset = (p0 * (inv_t**3)) + (p1 * 3 * (inv_t**2) * t) + (p2 * 3 * inv_t * (t**2)) + (p3 * (t**3))
+            # 使用贝塞尔曲线计算“一小步”
+            p0 = start_offset
+            p3 = target_offset
+            p1 = p0 + (p3 - p0) * 0.3 + Vec2(-(p3 - p0).y, (p3 - p0).x) * 0.3
+            p2 = p0 + (p3 - p0) * 0.7 + Vec2(-(p3 - p0).y, (p3 - p0).x) * 0.3
+            
+            t, inv_t = time_step, 1.0 - time_step
+            # 只插值一小步，得到新的偏移量
+            new_offset = (p0 * (inv_t**3)) + (p1 * 3 * (inv_t**2) * t) + \
+                     (p2 * 3 * inv_t * (t**2)) + (p3 * (t**3))
 
-                w, h = self.feature.size
-                new_pos = current_anchor + offset
-                final_bbox = (new_pos.x, new_pos.y, w, h)
-                self.add_frame_data(frame_idx, final_bbox, last_pos_model)
-                return final_bbox, last_pos_model
+            # 将计算出的新偏移量作为当前帧的持久化偏移量
+            self.current_offset = new_offset
+            
+            final_pos = current_anchor + self.current_offset
+            final_bbox = (final_pos.x, final_pos.y, w, h)
+            self.add_frame_data(frame_idx, final_bbox, None)
+            return final_bbox, None
 
-            elif frame_idx == end_frame:
-                new_pos_model = plan['target_pos_model']
-                self.cancel_avoidance_plan()
+        # 如果没有躲避计划，使用默认定位逻辑
+        if self.current_offset is not None:
+            final_pos = current_anchor + self.current_offset
+            final_bbox = (final_pos.x, final_pos.y, w, h)
+            self.add_frame_data(frame_idx, final_bbox, None)
+            return final_bbox, None
+        else:
+            if frame_idx > 0:
+                last_pos_model = self.history[frame_idx-1]['pos_model']
                 point_index = placer.point_id_map.index(self.feature.id)
-                final_bbox = placer._position_model(point_index, new_pos_model, current_anchor.x, current_anchor.y)
-                self.add_frame_data(frame_idx, final_bbox, new_pos_model)
-                return final_bbox, new_pos_model
-
-        point_index = placer.point_id_map.index(self.feature.id)
-        default_bbox = placer._position_model(point_index, last_pos_model, current_anchor.x, current_anchor.y)
-        self.add_frame_data(frame_idx, default_bbox, last_pos_model)
-        return default_bbox, last_pos_model
+                default_bbox = placer._position_model(point_index, last_pos_model, current_anchor.x, current_anchor.y)
+                self.add_frame_data(frame_idx, default_bbox, last_pos_model)
+                return default_bbox, last_pos_model
+            else:
+                 return self.history[0]['bbox'], self.history[0]['pos_model']

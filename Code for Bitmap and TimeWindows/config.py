@@ -14,11 +14,15 @@ OUTPUT_FILE = 'output_positions.json'
 # ----------------------------------------------------------------------
 # 核心算法配置 (Core Algorithm Configuration)
 # ----------------------------------------------------------------------
+
+radii_to_search = [25, 35, 45, 55, 65]
+points_per_circle = 16
+
 # 标签锚点周围的间隔半径
 LABEL_RADIUS = 2
 
 # 碰撞预测的未来帧数窗口
-PREDICTION_WINDOW = 5
+PREDICTION_WINDOW = 15
 
 # 时间步长 (单位：帧)
 DT = 1.0

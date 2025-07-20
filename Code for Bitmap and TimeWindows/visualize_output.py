@@ -11,15 +11,7 @@ def generate_visualization_gif():
     output_json_path = config.OUTPUT_FILE
     sample_json_path = config.INPUT_FILE
 
-    # --- 2. 检查文件是否存在 ---
-    if not os.path.exists(output_json_path):
-        print(f"错误: 找不到输入文件 '{output_json_path}'。请先运行主脚本生成该文件。")
-        return
-    if not os.path.exists(sample_json_path):
-        print(f"错误: 找不到输入文件 '{sample_json_path}'。")
-        return
-
-    # --- 3. 加载数据 ---
+    # --- 2. 加载数据 ---
     print("正在加载位置数据...")
     with open(output_json_path, 'r') as f:
         output_data = json.load(f)
@@ -32,15 +24,8 @@ def generate_visualization_gif():
     for point_id, data in initial_points.items():
         static_info[point_id] = {'text': data['text']}
 
-    # --- 4. 准备字体 (从 config 加载字体设置) ---
-    try:
-        font = ImageFont.truetype(config.FONT_NAME, size=config.FONT_SIZE)
-    except IOError:
-        print(f"警告: 未找到 {config.FONT_NAME} 字体，将使用默认字体。")
-        font = ImageFont.load_default()
 
-
-    # --- 5. 逐帧绘制图像 ---
+    # --- 3. 逐帧绘制图像 ---
     image_frames = []
     sorted_frame_keys = sorted(output_data.keys(), key=int)
 
@@ -80,7 +65,6 @@ def generate_visualization_gif():
             draw.text(
                 (bbox[0] + 4, bbox[1] + 2),
                 text,
-                font=font,
                 fill=config.TEXT_COLOR
             )
             
@@ -91,23 +75,20 @@ def generate_visualization_gif():
                 fill=config.ANCHOR_COLOR
             )
         
-        image_frames.append(img)
-    
+        image_frames.append(img) 
     print("\n所有帧绘制完成。")
 
-    # --- 6. 保存为 GIF 文件 (从 config 加载文件名和时长) ---
-    if image_frames:
-        print(f"正在生成 GIF 文件: {config.GIF_OUTPUT_FILENAME}...")
-        image_frames[0].save(
-            config.GIF_OUTPUT_FILENAME,
-            save_all=True,
-            append_images=image_frames[1:],
-            duration=config.GIF_DURATION_MS,
-            loop=0
-        )
-        print("🎉 GIF 生成成功！")
-    else:
-        print("错误：没有可用于生成 GIF 的帧。")
+    # --- 4. 保存为 GIF 文件 (从 config 加载文件名和时长) ---
+    print(f"正在生成 GIF 文件: {config.GIF_OUTPUT_FILENAME}...")
+    image_frames[0].save(
+        config.GIF_OUTPUT_FILENAME,
+        save_all=True,
+        append_images=image_frames[1:],
+        duration=config.GIF_DURATION_MS,
+        loop=0
+    )
+    print("🎉 GIF 生成成功！")
+
 
 if __name__ == "__main__":
     generate_visualization_gif()
