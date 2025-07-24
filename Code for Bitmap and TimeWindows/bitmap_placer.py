@@ -124,7 +124,7 @@ class BitmapPlacer:
         solution = self._bitmaplabeling()
         for point_id in self.point_id_map:
              if point_id not in solution:
-                 solution[point_id] = 4
+                 solution[point_id] = 1
         return solution
         
     def get_position_box(self, point_id_str, pos_model, anchor_tuple):

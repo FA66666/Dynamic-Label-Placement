@@ -17,13 +17,13 @@ OUTPUT_FILE = 'output_positions.json'
 
 # 候选位置生成的搜索半径和每圈点数
 radii_to_search = [25, 35, 45, 55, 65, 75]
-points_per_circle = 24
+points_per_circle = 72
 
 # 标签锚点周围的间隔半径
 LABEL_RADIUS = 2
 
 # 碰撞预测的未来帧数窗口
-PREDICTION_WINDOW = 5
+PREDICTION_WINDOW = 10
 
 # 时间步长 (单位：帧)
 DT = 1.0
@@ -38,10 +38,10 @@ N_VAL = 32
 # W_MOVE: 移动距离成本的权重。
 # W_LINE: 引导线长度成本的权重。
 # W_ANGLE: 角度变化成本的权重。
-W_OVERLAP = 1000000  
-W_MOVE = 10
+W_OVERLAP = 10000000
+W_MOVE = 1.5
 W_LINE = 70
-W_ANGLE = 150
+W_ANGLE = 12
 
 # ----------------------------------------------------------------------
 # 卡尔曼滤波器调优参数 (Kalman Filter Tuning)
