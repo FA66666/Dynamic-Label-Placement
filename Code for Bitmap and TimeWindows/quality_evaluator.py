@@ -147,13 +147,13 @@ def evaluate_placement_quality(output_data):
         s_angle_smoothness, s_distance_smoothness = 0, 0
         
     return {
-        'OCC ': occ,
-        'INT ': int_metric,
-        'S_overlap ': s_overlap,
-        'S_position ': s_position,
-        'S_aesthetics ': s_aesthetics,
-        'S_angle_smoothness ': s_angle_smoothness,
-        'S_distance_smoothness ': s_distance_smoothness
+        'OCC': occ,
+        'INT': int_metric,
+        'S_overlap': s_overlap,
+        'S_position': s_position,
+        'S_aesthetics': s_aesthetics,
+        'S_angle_smoothness': s_angle_smoothness,
+        'S_distance_smoothness': s_distance_smoothness
     }
 
 # ======================================================================
